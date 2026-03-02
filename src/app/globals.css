@@ -47,80 +47,181 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+/* ============================================================
+   LIGHT THEME — Refined fintech / professional
+   Topla bela pozadina, plavo-zeleni akcenat, duboke senke
+   ============================================================ */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  /* Pozadina — blago topla, nije čista bela */
+  --background: oklch(0.975 0.003 247);
+  --foreground: oklch(0.13 0.015 247);
+
+  /* Kartice — čista bela sa senkama */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.13 0.015 247);
+
+  /* Popover */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.13 0.015 247);
+
+  /* Primary — plavo-tamnija nijansa, fintech feel */
+  --primary: oklch(0.35 0.12 247);
+  --primary-foreground: oklch(0.98 0 0);
+
+  /* Secondary */
+  --secondary: oklch(0.94 0.008 247);
+  --secondary-foreground: oklch(0.25 0.02 247);
+
+  /* Muted */
+  --muted: oklch(0.945 0.006 247);
+  --muted-foreground: oklch(0.52 0.02 247);
+
+  /* Accent — blago plavi */
+  --accent: oklch(0.93 0.015 247);
+  --accent-foreground: oklch(0.25 0.04 247);
+
+  /* Destructive */
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* Border — suptilan, nije previše jak */
+  --border: oklch(0.88 0.008 247);
+  --input: oklch(0.90 0.008 247);
+  --ring: oklch(0.45 0.1 247);
+
+  /* Charts — življe boje za light temu */
+  --chart-1: oklch(0.55 0.18 162);   /* teal/emerald */
+  --chart-2: oklch(0.52 0.16 247);   /* blue */
+  --chart-3: oklch(0.62 0.19 303);   /* purple */
+  --chart-4: oklch(0.68 0.18 84);    /* amber */
+  --chart-5: oklch(0.60 0.22 27);    /* red/coral */
+
+  /* Sidebar — blago svetlija od pozadine, sa blagim akcentom */
+  --sidebar: oklch(0.99 0.002 247);
+  --sidebar-foreground: oklch(0.13 0.015 247);
+  --sidebar-primary: oklch(0.35 0.12 247);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.93 0.012 247);
+  --sidebar-accent-foreground: oklch(0.25 0.04 247);
+  --sidebar-border: oklch(0.88 0.008 247);
+  --sidebar-ring: oklch(0.45 0.1 247);
+
+  /* Senke — ključne za profesionalan izgled u light temi */
+  --shadow-xs: 0 1px 2px oklch(0.13 0.015 247 / 0.04);
+  --shadow-sm: 0 1px 3px oklch(0.13 0.015 247 / 0.06), 0 1px 2px oklch(0.13 0.015 247 / 0.04);
+  --shadow-md: 0 4px 6px -1px oklch(0.13 0.015 247 / 0.06), 0 2px 4px -2px oklch(0.13 0.015 247 / 0.04);
+  --shadow-lg: 0 10px 15px -3px oklch(0.13 0.015 247 / 0.07), 0 4px 6px -4px oklch(0.13 0.015 247 / 0.05);
+  --shadow-xl: 0 20px 25px -5px oklch(0.13 0.015 247 / 0.08), 0 8px 10px -6px oklch(0.13 0.015 247 / 0.04);
 }
 
+/* ============================================================
+   DARK THEME — Poboljšan, topliji, sa boljim kontrastima
+   ============================================================ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.13 0.008 247);
+  --foreground: oklch(0.96 0.004 247);
+
+  --card: oklch(0.18 0.008 247);
+  --card-foreground: oklch(0.96 0.004 247);
+
+  --popover: oklch(0.18 0.008 247);
+  --popover-foreground: oklch(0.96 0.004 247);
+
+  --primary: oklch(0.65 0.16 200);
+  --primary-foreground: oklch(0.10 0.01 247);
+
+  --secondary: oklch(0.24 0.010 247);
+  --secondary-foreground: oklch(0.96 0.004 247);
+
+  --muted: oklch(0.22 0.008 247);
+  --muted-foreground: oklch(0.63 0.012 247);
+
+  --accent: oklch(0.24 0.012 247);
+  --accent-foreground: oklch(0.96 0.004 247);
+
+  --destructive: oklch(0.65 0.20 22);
+
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.65 0.16 200);
+
+  --chart-1: oklch(0.60 0.18 200);   /* teal */
+  --chart-2: oklch(0.65 0.17 162);   /* emerald */
+  --chart-3: oklch(0.72 0.18 70);    /* amber */
+  --chart-4: oklch(0.60 0.24 303);   /* purple */
+  --chart-5: oklch(0.62 0.23 16);    /* red */
+
+  --sidebar: oklch(0.18 0.008 247);
+  --sidebar-foreground: oklch(0.96 0.004 247);
+  --sidebar-primary: oklch(0.60 0.18 200);
+  --sidebar-primary-foreground: oklch(0.96 0.004 247);
+  --sidebar-accent: oklch(0.24 0.012 247);
+  --sidebar-accent-foreground: oklch(0.96 0.004 247);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.65 0.16 200);
+
+  /* Senke u dark temi — manje vidljive, ali daju dubinu */
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.20);
+  --shadow-sm: 0 1px 3px oklch(0 0 0 / 0.25), 0 1px 2px oklch(0 0 0 / 0.15);
+  --shadow-md: 0 4px 6px -1px oklch(0 0 0 / 0.28), 0 2px 4px -2px oklch(0 0 0 / 0.18);
+  --shadow-lg: 0 10px 15px -3px oklch(0 0 0 / 0.30), 0 4px 6px -4px oklch(0 0 0 / 0.20);
+  --shadow-xl: 0 20px 25px -5px oklch(0 0 0 / 0.35), 0 8px 10px -6px oklch(0 0 0 / 0.20);
 }
 
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Senke na karticama — automatski u light temi */
+  .card,
+  [class*="rounded-xl"][class*="bg-card"],
+  [class*="rounded-lg"][class*="bg-card"] {
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+
+  /* Hover efekat na interaktivnim karticama */
+  a[class*="rounded-xl"][class*="bg-card"]:hover,
+  a[class*="rounded-lg"][class*="bg-card"]:hover {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+/* ============================================================
+   UTILITY KLASE ZA SENKE (koristite direktno u komponentama)
+   ============================================================ */
+@layer utilities {
+  .shadow-card {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .shadow-card-hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  .shadow-card-lg {
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Subtle inset border efekat za light temu — daje "lifted" izgled */
+  .card-lifted {
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 1px 0 oklch(1 0 0 / 0.8);
+  }
+
+  .dark .card-lifted {
+    box-shadow:
+      var(--shadow-sm),
+      inset 0 1px 0 oklch(1 0 0 / 0.05);
   }
 }

@@ -48,3 +48,23 @@ export async function getCalendarData(year: number, month: number) {
     winRate: Math.round((data.wins / data.count) * 1000) / 10,
   }))
 }
+
+// ← NOVO: vraća sve tradove za konkretan datum
+export async function getTradesForDate(date: string) {
+  const session = await getSession()
+  const userId = session.user.id
+
+  const from = new Date(date + 'T00:00:00')
+  const to = new Date(date + 'T23:59:59')
+
+  const result = await db.query.trades.findMany({
+    where: and(
+      eq(trades.userId, userId),
+      gte(trades.openedAt, from),
+      lte(trades.openedAt, to)
+    ),
+    orderBy: (trades, { asc }) => [asc(trades.openedAt)],
+  })
+
+  return result
+}
