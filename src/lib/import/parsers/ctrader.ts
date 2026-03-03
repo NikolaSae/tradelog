@@ -1,98 +1,121 @@
 //src/lib/import/parsers/ctrader.ts
+// src/lib/import/parsers/ctrader.ts
 
-import Papa from 'papaparse'
-import {
-  sanitizeString, sanitizeSymbol, sanitizeNumber,
-  sanitizeLots, sanitizeDate, sanitizeExternalId, sanitizeDirection,
-} from '../sanitize'
-import type { ImportResult, ParsedTrade } from '../types'
+import { sanitizeString, sanitizeSymbol, sanitizeNumber, sanitizeLots, sanitizeDate, sanitizeDirection } from '../sanitize'
+import type { ParsedTrade, ParseResult } from '../types'
 
-// Očekivane kolone (lowercase)
-const REQUIRED_COLS = ['deal id', 'symbol', 'opening direction', 'opening time (utc+1)', 'closing time (utc+1)', 'entry price', 'closing price', 'closing quantity']
-
-export function parseCtraderCSV(csvText: string): ImportResult {
+export function parseCTrader(rows: Record<string, string>[], filename: string): ParseResult {
+  const parsedTrades: ParsedTrade[] = []
   const errors: string[] = []
   let skipped = 0
-  const trades: ParsedTrade[] = []
-
-  // Ograniči veličinu fajla (max 5MB)
-  if (csvText.length > 5 * 1024 * 1024) {
-    return { trades: [], errors: ['File too large (max 5MB)'], skipped: 0 }
-  }
-
-  const result = Papa.parse(csvText, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.toLowerCase().trim(),
-  })
-
-  // Provjeri da li postoje potrebne kolone
-  const headers = Object.keys(result.data[0] ?? {})
-  const missingCols = REQUIRED_COLS.filter(col => !headers.includes(col))
-  if (missingCols.length > 0) {
-    return {
-      trades: [],
-      errors: [`Missing columns: ${missingCols.join(', ')}`],
-      skipped: 0,
-    }
-  }
-
-  // Ograniči broj redova (max 10,000 tradova odjednom)
-  const rows = result.data.slice(0, 10000)
-  if (result.data.length > 10000) {
-    errors.push(`File has ${result.data.length} rows. Only first 10,000 will be imported.`)
-  }
 
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i] as Record<string, unknown>
-    const rowNum = i + 2 // +2 jer je row 1 header
+    const row = rows[i]
+    const rowNum = i + 2 // +2 jer je red 1 header
 
-    // Sanitizuj sve podatke
-    const externalId = sanitizeExternalId(row['deal id'])
-    const symbol = sanitizeSymbol(row['symbol'])
-    const direction = sanitizeDirection(row['opening direction'])
-    const openedAt = sanitizeDate(row['opening time (utc+1)'])
-    const closedAt = sanitizeDate(row['closing time (utc+1)'])
-    const entryPrice = sanitizeNumber(row['entry price'])
-    const exitPrice = sanitizeNumber(row['closing price'])
-    const lotSize = sanitizeLots(row['closing quantity'])
-    const swap = sanitizeNumber(row['swap']) ?? 0
-    const commission = sanitizeNumber(row['commissions']) ?? 0
-    const grossPnl = sanitizeNumber(row['gross usd']) ?? 0
-    const netPnl = sanitizeNumber(row['net usd']) ?? 0
+    try {
+      // External ID
+      const externalId = sanitizeString(row['Deal ID'] ?? row['DealID'] ?? '')
+      if (!externalId) {
+        errors.push(`Row ${rowNum}: Missing Deal ID, skipping`)
+        skipped++
+        continue
+      }
 
-    // Validacija — preskoci red ako nedostaje kritičan podatak
-    const rowErrors: string[] = []
-    if (!symbol) rowErrors.push('invalid symbol')
-    if (!direction) rowErrors.push('invalid direction (expected Buy/Sell)')
-    if (!openedAt) rowErrors.push('invalid opening time')
-    if (!closedAt) rowErrors.push('invalid closing time')
-    if (entryPrice === null || entryPrice <= 0) rowErrors.push('invalid entry price')
-    if (exitPrice === null || exitPrice <= 0) rowErrors.push('invalid closing price')
-    if (lotSize === null) rowErrors.push('invalid lot size')
+      // Symbol
+      const symbol = sanitizeSymbol(row['Symbol'] ?? '')
+      if (!symbol) {
+        errors.push(`Row ${rowNum}: Missing symbol, skipping`)
+        skipped++
+        continue
+      }
 
-    if (rowErrors.length > 0) {
-      errors.push(`Row ${rowNum}: ${rowErrors.join(', ')}`)
+      // Direction — "Buy" → LONG, "Sell" → SHORT
+      const directionRaw = sanitizeString(row['Opening Direction'] ?? '')
+      const direction = sanitizeDirection(directionRaw)
+      if (!direction) {
+        errors.push(`Row ${rowNum}: Invalid direction "${directionRaw}", skipping`)
+        skipped++
+        continue
+      }
+
+      // Dates
+      const openedAt = sanitizeDate(row['Opening Time (UTC+1)'] ?? row['Opening Time'] ?? '')
+      if (!openedAt) {
+        errors.push(`Row ${rowNum}: Invalid open time, skipping`)
+        skipped++
+        continue
+      }
+
+      const closedAt = sanitizeDate(row['Closing Time (UTC+1)'] ?? row['Closing Time'] ?? '')
+
+      // Prices
+      const entryPrice = sanitizeNumber(row['Entry price'] ?? row['Entry Price'] ?? '')
+      if (!entryPrice) {
+        errors.push(`Row ${rowNum}: Missing entry price, skipping`)
+        skipped++
+        continue
+      }
+
+      const exitPrice = sanitizeNumber(row['Closing Price'] ?? '')
+
+      // Lot size — "0.08 Lots" → 0.08
+      const lotRaw = row['Closing Quantity'] ?? ''
+      const lotSize = sanitizeLots(lotRaw.replace(/\s*lots?\s*/i, '').trim())
+      if (!lotSize) {
+        errors.push(`Row ${rowNum}: Invalid lot size "${lotRaw}", skipping`)
+        skipped++
+        continue
+      }
+
+      // Financials
+      const swap = sanitizeNumber(row['Swap'] ?? '0') ?? 0
+      const commission = sanitizeNumber(row['Commissions'] ?? row['Commission'] ?? '0') ?? 0
+
+      // ✅ Net USD = profit po poziciji (već uključuje swap i komisiju)
+      const netPnl = sanitizeNumber(row['Net USD'] ?? '')
+
+      // Gross USD = bruto profit bez troškova
+      const grossPnl = sanitizeNumber(row['Gross USD'] ?? '')
+
+      // Balance nakon zatvaranja (informativan, ne koristimo za P&L)
+      // const balanceAfter = sanitizeNumber(row['Balance USD'] ?? '')
+
+      const status = closedAt ? 'CLOSED' : 'OPEN'
+
+      parsedTrades.push({
+        externalId,
+        symbol,
+        direction,
+        status: status as 'OPEN' | 'CLOSED',
+        entryPrice,
+        exitPrice: exitPrice ?? undefined,
+        lotSize,
+        swap,
+        commission: Math.abs(commission), // komisija je negativna u cTrader exportu
+        grossPnl: grossPnl ?? undefined,
+        netPnl: netPnl ?? undefined,      // ✅ koristimo Net USD
+        openedAt,
+        closedAt: closedAt ?? undefined,
+        notes: `Channel: ${sanitizeString(row['Channel'] ?? '')}`,
+      })
+    } catch (err) {
+      errors.push(`Row ${rowNum}: Unexpected error — ${err}`)
       skipped++
-      continue
     }
-
-    trades.push({
-      externalId: externalId || undefined,
-      symbol: symbol!,
-      direction: direction!,
-      entryPrice: entryPrice!,
-      exitPrice: exitPrice!,
-      lotSize: lotSize!,
-      swap,
-      commission: Math.abs(commission), // cTrader šalje negativne komisije
-      grossPnl,
-      netPnl,
-      openedAt: openedAt!,
-      closedAt: closedAt!,
-      status: 'CLOSED',
-    })
   }
 
-  return { trades, errors, skipped }
+  return {
+    trades: parsedTrades,
+    errors,
+    skipped,
+    format: 'ctrader',
+  }
+}
+
+// Detekcija cTrader formata — provjeri karakteristične kolone
+export function isCTraderFormat(headers: string[]): boolean {
+  const required = ['Deal ID', 'Opening Direction', 'Net USD', 'Balance USD']
+  const normalized = headers.map(h => h.trim())
+  return required.every(col => normalized.some(h => h.includes(col.split(' ')[0])))
 }

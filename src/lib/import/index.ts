@@ -1,15 +1,24 @@
-//src/lib/import/index.ts
+// src/lib/import/index.ts
 
-import { parseCtraderCSV } from './parsers/ctrader'
+import Papa from 'papaparse'
+import { parseCTrader, isCTraderFormat } from './parsers/ctrader'
 import { parseGenericCSV } from './parsers/generic'
 import type { ImportResult } from './types'
 
 export function detectAndParse(csvText: string, filename: string): ImportResult {
-  const lower = filename.toLowerCase()
+  // Parsiraj CSV u redove
+  const parsed = Papa.parse<Record<string, string>>(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    trimHeaders: true,
+  })
 
-  // Pokušaj cTrader format (Deal ID kolona je karakteristična)
-  if (csvText.includes('Deal ID') || csvText.includes('Opening Direction')) {
-    return parseCtraderCSV(csvText)
+  const headers = parsed.meta.fields ?? []
+  const rows = parsed.data
+
+  // Detekcija cTrader formata
+  if (isCTraderFormat(headers)) {
+    return parseCTrader(rows, filename)
   }
 
   // Fallback na generic
