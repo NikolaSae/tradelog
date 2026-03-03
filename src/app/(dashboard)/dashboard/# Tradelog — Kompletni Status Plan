@@ -1,0 +1,296 @@
+# Tradelog — Kompletni Status Plan
+
+## ✅ ZAVRŠENO
+
+### Planiranje
+- [x] Generalni plan aplikacije (svi moduli, funkcionalnosti)
+- [x] Monetizacija plan (Free/Pro/Elite tier sistem)
+- [x] Tech stack odabir (Next.js 16.1, Drizzle, better-auth, Stripe, Resend)
+- [x] Kompletni plan u Markdown dokumentu
+
+### Infrastruktura & Setup
+- [x] Node.js 22, pnpm 10.30.3 instalirano
+- [x] PostgreSQL 17.5 (XAMPP) podešen
+- [x] Baza `tradelog` kreirana sa `tradelog_user`
+- [x] Next.js 16.1 projekat kreiran (Turbopack, TypeScript, Tailwind, React Compiler)
+- [x] Sve dependencies instalirane (drizzle, better-auth, stripe, resend, recharts, itd.)
+- [x] Shadcn/ui inicijalizovan sa komponentama
+- [x] Folder struktura kreirana
+
+### Database
+- [x] `drizzle.config.ts` konfigurisan
+- [x] `src/db/index.ts` — konekcija na PostgreSQL
+- [x] Schema fajlovi:
+  - [x] `users.ts` — users, sessions, accounts, verifications
+  - [x] `subscriptions.ts` — subscriptions, billing_history
+  - [x] `trades.ts` — broker_accounts, trades, trade_screenshots, tags, trade_tags, broker_imports
+  - [x] `journal.ts` — daily_journals
+  - [x] `goals.ts` — goals, alerts
+  - [x] `playbook.ts` — playbook_setups
+  - [x] `audit.ts` — audit_logs
+  - [x] `schema/index.ts` — export svih schema
+- [x] `pnpm db:push` — sve tabele kreirane u bazi
+
+### Config & Utils
+- [x] `src/config/plans.ts` — PLANS, FEATURE_GATES, hasFeatureAccess
+- [x] `src/config/site.ts` — navigacija, metadata
+- [x] `src/lib/utils.ts` — cn, formatCurrency, formatPnl, getPnlColor...
+- [x] `package.json` scripts — db:generate, db:migrate, db:push, db:studio
+
+#### 1.  `src/app/page.tsx`
+```typescript
+import { redirect } from 'next/navigation'
+export default function HomePage() {
+  redirect('/dashboard')
+}
+```
+
+*x*`src/lib/auth/index.ts`**
+*x*`src/lib/auth/client.ts`**
+*x*`src/app/api/auth/[...all]/route.ts`**
+
+
+*x*`src/components/shared/providers.tsx`** — TanStack Query + ThemeProvider + Sonner
+
+*x*`src/app/layout.tsx`** — 
+
+x- `src/app/(auth)/layout.tsx`
+x- `src/app/(auth)/login/page.tsx`
+x- `src/app/(auth)/register/page.tsx`
+x- `src/components/auth/auth-card.tsx`
+x- `src/components/auth/login-form.tsx`
+x- `src/components/auth/register-form.tsx`
+
+x- `src/app/(dashboard)/layout.tsx`
+x- `src/app/(dashboard)/dashboard/page.tsx`
+x- `src/components/layout/app-sidebar.tsx`
+x- `src/components/layout/app-header.tsx`
+x- `src/components/layout/nav-user.tsx`
+
+---
+
+
+
+### Hooks & Shared Components
+- [ x] `src/hooks/use-current-user.ts`
+- [ x] `src/hooks/use-feature-gate.ts`
+- [ x] `src/components/shared/upgrade-gate.tsx`
+- [x ] `src/components/shared/page-header.tsx`
+- [x ] `src/components/shared/empty-state.tsx`
+- [x ] `src/components/shared/stat-card.tsx`
+- [x ] `src/actions/trades.ts` — createTrade, updateTrade, deleteTrade, getTrades, getTradeStats
+- [ x] `src/types/trade.ts`
+- [x ] `src/lib/validators/trade.ts`
+- [x] `src/app/(dashboard)/trades/new/page.tsx`
+- [x] `src/app/(dashboard)/trades/page.tsx`
+- [x] `src/components/trades/trade-form.tsx`
+- [x] `src/components/trades/trade-table.tsx`
+
+## ❌ NIJE URAĐENO
+### Trades Modul
+
+
+
+- [ ] `src/components/trades/trade-filters.tsx`
+
+
+- [ ] `src/app/(dashboard)/trades/[id]/page.tsx`
+
+### Dashboard KPI
+- [ ] `src/components/dashboard/kpi-card.tsx`
+- [ ] `src/components/dashboard/equity-curve.tsx`
+- [ ] `src/components/dashboard/pnl-chart.tsx`
+- [ ] `src/components/dashboard/recent-trades.tsx`
+- [ ] `src/components/dashboard/calendar-heatmap.tsx` (Pro)
+- [ ] `src/components/dashboard/open-positions.tsx`
+- [ ] Dashboard page sa pravim podacima iz baze
+
+### Analytics Modul (Pro)
+- [ ] `src/actions/analytics.ts`
+- [ ] `src/app/(dashboard)/analytics/page.tsx`
+- [ ] `src/app/(dashboard)/analytics/performance/page.tsx`
+- [ ] `src/app/(dashboard)/analytics/risk/page.tsx`
+- [ ] `src/app/(dashboard)/analytics/execution/page.tsx`
+- [ ] `src/app/(dashboard)/analytics/psychology/page.tsx`
+- [ ] Performance charts (P&L po simbolu, sesiji, danu u sedmici)
+- [ ] Risk charts (drawdown, MAE/MFE)
+- [ ] Execution analytics
+- [ ] Psychology tracking
+
+### Calendar (Pro)
+- [ ] `src/app/(dashboard)/calendar/page.tsx`
+- [ ] Calendar heatmap komponenta
+- [ ] Day detail modal
+
+### Journal
+- [ ] `src/actions/journal.ts`
+- [ ] `src/app/(dashboard)/journal/page.tsx`
+- [ ] `src/app/(dashboard)/journal/[date]/page.tsx`
+- [ ] Daily journal forma
+
+### Goals & Alerts (Pro)
+- [ ] `src/actions/goals.ts`
+- [ ] `src/app/(dashboard)/goals/page.tsx`
+- [ ] Goals progress komponente
+- [ ] `src/app/(dashboard)/alerts/page.tsx`
+
+### Playbook (Pro)
+- [ ] `src/actions/playbook.ts`
+- [ ] `src/app/(dashboard)/playbook/page.tsx`
+- [ ] `src/app/(dashboard)/playbook/[id]/page.tsx`
+
+### Import/Export (Pro)
+- [ ] CSV parser za MT4/MT5
+- [ ] Excel import
+- [ ] `src/app/(dashboard)/import/page.tsx`
+- [ ] `src/app/(dashboard)/reports/page.tsx`
+- [ ] Excel/PDF export
+
+### Subscription & Stripe
+- [ ] `src/lib/stripe/index.ts`
+- [ ] `src/lib/stripe/plans.ts`
+- [ ] `src/app/api/webhooks/stripe/route.ts`
+- [ ] `src/actions/subscriptions.ts`
+- [ ] `src/app/upgrade/page.tsx`
+- [ ] `src/app/upgrade/success/page.tsx`
+- [ ] `src/app/(dashboard)/settings/subscription/page.tsx`
+- [ ] `src/app/(dashboard)/settings/billing/page.tsx`
+
+### Email Sistem
+- [ ] `src/lib/email/index.ts` — Resend konfiguracija
+- [ ] `src/emails/templates/welcome.tsx`
+- [ ] `src/emails/templates/subscription-confirmed.tsx`
+- [ ] `src/emails/templates/payment-failed.tsx`
+- [ ] `src/emails/templates/weekly-digest.tsx`
+
+### Settings
+- [ ] `src/app/(dashboard)/settings/layout.tsx`
+- [ ] `src/app/(dashboard)/settings/profile/page.tsx`
+- [ ] `src/app/(dashboard)/settings/accounts/page.tsx`
+- [ ] `src/app/(dashboard)/settings/security/page.tsx`
+- [ ] `src/app/(dashboard)/settings/notifications/page.tsx`
+- [ ] `src/app/(dashboard)/settings/data/page.tsx` (GDPR)
+- [ ] `src/app/(dashboard)/settings/api/page.tsx` (Pro)
+
+### Admin Panel
+- [ ] `src/app/admin/layout.tsx`
+- [ ] `src/app/admin/page.tsx` — MRR, ARR, stats
+- [ ] `src/app/admin/users/page.tsx`
+- [ ] `src/app/admin/subscriptions/page.tsx`
+
+### Landing & Marketing
+- [ ] Landing page sa hero, features, pricing
+- [ ] `src/app/(marketing)/pricing/page.tsx`
+- [ ] `src/app/(marketing)/privacy/page.tsx`
+- [ ] `src/app/(marketing)/terms/page.tsx`
+
+### Onboarding
+- [ ] Onboarding wizard (5 koraka)
+- [ ] Broker account setup
+- [ ] Početni import ili manual entry
+
+### PWA & Mobile
+- [ ] `public/manifest.json`
+- [ ] Service worker
+- [ ] Mobile responsive fine-tuning
+
+### AI Features (Pro/Elite)
+- [ ] Vercel AI SDK integracija
+- [ ] Pattern detection
+- [ ] Auto-tagging
+- [ ] Weekly AI coaching insight
+
+### Security & Compliance
+- [ ] 2FA (TOTP) sa better-auth
+- [ ] Rate limiting
+- [ ] GDPR data export
+- [ ] Cookie consent banner
+
+---
+
+## 📋 Prioritizovani Redosled
+
+### Faza 1 — Osnovni app radi (HITNO)
+1. Ispravi `page.tsx` redirect
+2. Auth fajlovi (index.ts, client.ts, route.ts)
+3. proxy.ts
+4. Providers + Root Layout
+5. Auth stranice (login, register)
+6. Dashboard layout (sidebar, header)
+7. **TEST: registracija i login rade**
+
+### Faza 2 — Core trades funkcionalnost
+8. Shared komponente (hooks, upgrade-gate, page-header, empty-state)
+9. Trade types + validators
+10. Server Actions (trades)
+11. Trade forma + tabela
+12. Trades stranice (/trades, /trades/new, /trades/[id])
+13. **TEST: dodavanje i pregled tradova**
+
+### Faza 3 — Dashboard sa podacima
+14. KPI kartice sa pravim stats
+15. Equity curve chart
+16. Recent trades feed
+17. **TEST: dashboard prikazuje realne podatke**
+
+### Faza 4 — Pro features
+18. Analytics modul
+19. Calendar heatmap
+20. Journal
+21. Goals & Alerts
+22. Playbook
+
+### Faza 5 — Monetizacija
+23. Stripe integracija
+24. Webhook handler
+25. Upgrade stranica
+26. Settings/subscription
+
+### Faza 6 — Import/Export
+27. CSV parseri (MT4/MT5)
+28. Excel import
+29. PDF/Excel export
+
+### Faza 7 — Email & Notifikacije
+30. Resend setup
+31. Transakcioni emailovi
+32. Weekly digest
+
+### Faza 8 — Landing & Marketing
+33. Landing page
+34. Pricing stranica
+35. Privacy/Terms
+
+### Faza 9 — Polish
+36. Admin panel
+37. Onboarding wizard
+38. PWA
+39. AI features
+40. 2FA & Security
+
+---
+
+## 🎯 Trenutni Fokus
+
+**Uradi ovo odmah:**
+
+```
+src/app/page.tsx                          ← redirect na /dashboard
+src/lib/auth/index.ts                     ← better-auth setup
+src/lib/auth/client.ts                    ← auth client
+src/app/api/auth/[...all]/route.ts        ← auth handler
+proxy.ts                                  ← route protection
+src/components/shared/providers.tsx       ← TanStack Query + Theme
+src/app/layout.tsx                        ← root layout sa Providers
+src/app/(auth)/layout.tsx                 ← auth layout
+src/app/(auth)/login/page.tsx             ← login stranica
+src/app/(auth)/register/page.tsx          ← register stranica
+src/components/auth/auth-card.tsx
+src/components/auth/login-form.tsx
+src/components/auth/register-form.tsx
+src/app/(dashboard)/layout.tsx            ← dashboard layout
+src/app/(dashboard)/dashboard/page.tsx    ← placeholder dashboard
+
+```
+
+Kada ovo bude radilo → prelazimo na Trades modul.

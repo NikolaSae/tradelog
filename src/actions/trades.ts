@@ -15,7 +15,7 @@ import { tradeFormSchema } from '@/lib/validators/trade'
 import { PLANS } from '@/config/plans'
 import type { TradeFormValues } from '@/lib/validators/trade'
 import type { TimePeriod } from '@/types/trade'
-
+import { checkAlertsForUser } from '@/actions/alerts'
 // Helper: get current session or throw
 async function getSession() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -50,19 +50,43 @@ async function getDefaultAccount(userId: string) {
 }
 
 // Helper: calculate P&L
+function getContractSize(symbol: string): number {
+  const s = symbol.toUpperCase()
+  // Metali
+  if (s.includes('XAU') || s === 'GOLD') return 100      // Gold — 100 oz
+  if (s.includes('XAG') || s === 'SILVER') return 5000   // Silver — 5000 oz
+  if (s.includes('XPT') || s.includes('XPD')) return 100
+  // Kripto (tipično)
+  if (s.includes('BTC')) return 1
+  if (s.includes('ETH')) return 1
+  // Indeksi (US100, SPX, GER40...)
+  if (s.includes('NAS') || s.includes('US100') || s.includes('NQ')) return 20
+  if (s.includes('SPX') || s.includes('US500') || s.includes('SP500')) return 50
+  if (s.includes('DOW') || s.includes('US30')) return 5
+  if (s.includes('GER') || s.includes('DAX')) return 25
+  if (s.includes('UK100') || s.includes('FTSE')) return 10
+  // Energija
+  if (s.includes('OIL') || s.includes('WTI') || s.includes('BRENT')) return 1000
+  if (s.includes('GAS')) return 10000
+  // Forex default
+  return 100000
+}
+
 function calculatePnl(
   direction: 'LONG' | 'SHORT',
   entryPrice: number,
   exitPrice: number,
   lotSize: number,
   commission: number,
-  swap: number
+  swap: number,
+  symbol: string
 ) {
+  const contractSize = getContractSize(symbol)
   const priceDiff = direction === 'LONG'
     ? exitPrice - entryPrice
     : entryPrice - exitPrice
 
-  const grossPnl = priceDiff * lotSize * 100000 // standard forex calculation
+  const grossPnl = priceDiff * lotSize * contractSize
   const netPnl = grossPnl - commission - Math.abs(swap)
 
   return {
@@ -139,7 +163,8 @@ export async function createTrade(values: TradeFormValues) {
       data.exitPrice,
       data.lotSize,
       data.commission,
-      data.swap
+      data.swap,
+      data.symbol
     )
     grossPnl = pnl.grossPnl
     netPnl = pnl.netPnl
@@ -195,7 +220,7 @@ export async function createTrade(values: TradeFormValues) {
   await db.insert(trades).values(trade)
   revalidatePath('/trades')
   revalidatePath('/dashboard')
-
+  checkAlertsForUser(userId).catch(console.error)
   return { success: true, id: trade.id }
 }
 
@@ -227,7 +252,8 @@ export async function updateTrade(id: string, values: TradeFormValues) {
       data.exitPrice,
       data.lotSize,
       data.commission,
-      data.swap
+      data.swap,
+      data.symbol
     )
     grossPnl = pnl.grossPnl
     netPnl = pnl.netPnl
@@ -298,24 +324,27 @@ export async function deleteTrade(id: string) {
 // GET TRADES LIST
 // ===========================
 export async function getTrades({
-  period = 'month',
+  period = 'all',
   symbol,
   direction,
   status,
+  page = 1,
+  limit = 20,
 }: {
   period?: TimePeriod
   symbol?: string
   direction?: 'LONG' | 'SHORT'
   status?: string
+  page?: number
+  limit?: number
 } = {}) {
   const session = await getSession()
   const userId = session.user.id
 
   const conditions = [eq(trades.userId, userId)]
 
-  // Date filter
-  const now = new Date()
   if (period !== 'all') {
+    const now = new Date()
     const from = new Date()
     if (period === 'day') from.setHours(0, 0, 0, 0)
     else if (period === 'week') from.setDate(now.getDate() - 7)
@@ -329,12 +358,42 @@ export async function getTrades({
   if (direction) conditions.push(eq(trades.direction, direction))
   if (status) conditions.push(eq(trades.status, status as any))
 
+  const offset = (page - 1) * limit
+
+  // Ukupan broj za paginaciju
+  const totalResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(trades)
+    .where(and(...conditions))
+
+  const total = Number(totalResult[0]?.count ?? 0)
+
   const result = await db.query.trades.findMany({
     where: and(...conditions),
     orderBy: [desc(trades.openedAt)],
+    limit,
+    offset,
   })
 
-  return result
+  return {
+    trades: result,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  }
+}
+export async function getTradeSymbols() {
+  const session = await getSession()
+  const userId = session.user.id
+
+  const result = await db
+    .selectDistinct({ symbol: trades.symbol })
+    .from(trades)
+    .where(eq(trades.userId, userId))
+    .orderBy(trades.symbol)
+
+  return result.map(r => r.symbol)
 }
 
 // ===========================
@@ -358,7 +417,6 @@ export async function getTrade(id: string) {
 export async function getTradeStats(period: TimePeriod = 'month') {
   const session = await getSession()
   const userId = session.user.id
-
   const now = new Date()
   const from = new Date()
   if (period === 'day') from.setHours(0, 0, 0, 0)
@@ -371,7 +429,6 @@ export async function getTradeStats(period: TimePeriod = 'month') {
     eq(trades.userId, userId),
     eq(trades.status, 'CLOSED'),
   ]
-
   if (period !== 'all') {
     conditions.push(gte(trades.openedAt, from))
   }
@@ -380,6 +437,7 @@ export async function getTradeStats(period: TimePeriod = 'month') {
     where: and(...conditions),
   })
 
+  // Empty state — sve nule, nema referenci na nedefinirane varijable
   if (allTrades.length === 0) {
     return {
       totalTrades: 0,
@@ -397,24 +455,27 @@ export async function getTradeStats(period: TimePeriod = 'month') {
       largestWin: 0,
       largestLoss: 0,
       avgRMultiple: 0,
+      tradingDays: 0,
+      grossWinTotal: 0,
+      grossLossTotal: 0,
     }
   }
 
+  // Kalkulacije — dolaze NAKON early return
   const winners = allTrades.filter(t => Number(t.netPnl ?? 0) > 0)
-  const losers = allTrades.filter(t => Number(t.netPnl ?? 0) < 0)
+  const losers  = allTrades.filter(t => Number(t.netPnl ?? 0) < 0)
 
-  const totalNetPnl = allTrades.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)
-  const totalGrossPnl = allTrades.reduce((sum, t) => sum + Number(t.grossPnl ?? 0), 0)
+  const totalNetPnl    = allTrades.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)
+  const totalGrossPnl  = allTrades.reduce((sum, t) => sum + Number(t.grossPnl ?? 0), 0)
   const totalCommission = allTrades.reduce((sum, t) => sum + Number(t.commission ?? 0), 0)
 
-  const grossWins = winners.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)
+  const grossWins   = winners.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)
   const grossLosses = Math.abs(losers.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0))
 
   const profitFactor = grossLosses === 0 ? grossWins : grossWins / grossLosses
   const winRate = (winners.length / allTrades.length) * 100
-
-  const avgWin = winners.length > 0 ? grossWins / winners.length : 0
-  const avgLoss = losers.length > 0 ? grossLosses / losers.length : 0
+  const avgWin  = winners.length > 0 ? grossWins / winners.length : 0
+  const avgLoss = losers.length  > 0 ? grossLosses / losers.length : 0
   const expectancy = (winRate / 100) * avgWin - ((100 - winRate) / 100) * avgLoss
 
   const rMultiples = allTrades
@@ -423,6 +484,13 @@ export async function getTradeStats(period: TimePeriod = 'month') {
   const avgRMultiple = rMultiples.length > 0
     ? rMultiples.reduce((a, b) => a + b, 0) / rMultiples.length
     : 0
+
+  const tradingDays = new Set(
+    allTrades.map(t => {
+      const d = t.closedAt ?? t.openedAt
+      return d ? d.toISOString().split('T')[0] : null
+    }).filter(Boolean)
+  ).size
 
   return {
     totalTrades: allTrades.length,
@@ -437,8 +505,15 @@ export async function getTradeStats(period: TimePeriod = 'month') {
     avgLoss: Math.round(avgLoss * 100) / 100,
     profitFactor: Math.round(profitFactor * 100) / 100,
     expectancy: Math.round(expectancy * 100) / 100,
-    largestWin: winners.length > 0 ? Math.max(...winners.map(t => Number(t.netPnl ?? 0))) : 0,
-    largestLoss: losers.length > 0 ? Math.min(...losers.map(t => Number(t.netPnl ?? 0))) : 0,
+    largestWin: winners.length > 0
+      ? Math.round(Math.max(...winners.map(t => Number(t.netPnl ?? 0))) * 100) / 100
+      : 0,
+    largestLoss: losers.length > 0
+      ? Math.round(Math.min(...losers.map(t => Number(t.netPnl ?? 0))) * 100) / 100
+      : 0,
     avgRMultiple: Math.round(avgRMultiple * 100) / 100,
+    tradingDays,
+    grossWinTotal: Math.round(grossWins * 100) / 100,
+    grossLossTotal: Math.round(grossLosses * 100) / 100,
   }
 }

@@ -23,72 +23,46 @@ import {
 import type { Trade } from '@/types/trade'
 
 interface TradeFormProps {
-  trade?: Trade
-  onSuccess?: () => void
+  tradeId?: string          // ako postoji → edit mode
+  defaultValues?: Partial<TradeFormValues>
 }
 
-export function TradeForm({ trade, onSuccess }: TradeFormProps) {
+export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
   const router = useRouter()
-  const isEdit = !!trade
+  const isEdit = !!tradeId
 
   const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    formState: { errors, isSubmitting },
-  } = useForm<TradeFormValues>({
-    resolver: zodResolver(tradeFormSchema),
-    defaultValues: trade
-      ? {
-          symbol: trade.symbol,
-          direction: trade.direction,
-          status: trade.status,
-          session: trade.session ?? undefined,
-          entryPrice: Number(trade.entryPrice),
-          exitPrice: trade.exitPrice ? Number(trade.exitPrice) : undefined,
-          stopLoss: trade.stopLoss ? Number(trade.stopLoss) : undefined,
-          takeProfit: trade.takeProfit ? Number(trade.takeProfit) : undefined,
-          lotSize: Number(trade.lotSize),
-          commission: Number(trade.commission ?? 0),
-          swap: Number(trade.swap ?? 0),
-          openedAt: trade.openedAt
-            ? new Date(trade.openedAt).toISOString().slice(0, 16)
-            : '',
-          closedAt: trade.closedAt
-            ? new Date(trade.closedAt).toISOString().slice(0, 16)
-            : undefined,
-          emotionTag: trade.emotionTag ?? undefined,
-          notes: trade.notes ?? undefined,
-        }
-      : {
-          direction: 'LONG',
-          status: 'CLOSED',
-          commission: 0,
-          swap: 0,
-          openedAt: new Date().toISOString().slice(0, 16),
-        },
-  })
+  register,
+  handleSubmit,
+  setValue,
+  watch,
+  formState: { errors, isSubmitting },
+} = useForm<TradeFormValues>({
+  resolver: zodResolver(tradeFormSchema),
+  defaultValues: defaultValues ?? {
+    direction: 'LONG',
+    status: 'CLOSED',
+    commission: 0,
+    swap: 0,
+    openedAt: new Date().toISOString().slice(0, 16),
+  },
+})
 
   const status = watch('status')
 
   async function onSubmit(values: TradeFormValues) {
-    const result = isEdit
-      ? await updateTrade(trade!.id, values)
-      : await createTrade(values)
+  const result = isEdit
+    ? await updateTrade(tradeId!, values)
+    : await createTrade(values)
 
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-
-    toast.success(isEdit ? 'Trade updated' : 'Trade added')
-    if (onSuccess) {
-      onSuccess()
-    } else {
-      router.push('/trades')
-    }
+  if (result.error) {
+    toast.error(result.error)
+    return
   }
+
+  toast.success(isEdit ? 'Trade updated' : 'Trade added')
+  router.push(isEdit ? `/trades/${tradeId}` : '/trades')
+}
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">

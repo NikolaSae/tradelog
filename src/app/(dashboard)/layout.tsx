@@ -6,17 +6,18 @@ import { auth } from '@/lib/auth'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { AppHeader } from '@/components/layout/app-header'
 import { SidebarProvider } from '@/components/ui/sidebar'
+import { checkOnboardingStatus } from '@/actions/onboarding'
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  })
-
+// U dashboard layout serveru:
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth.api.getSession({ headers: await headers() })
   if (!session) redirect('/login')
+
+  // Provjeri onboarding samo za nove korisnike
+  const status = await checkOnboardingStatus()
+  if (!status.completed) {
+    redirect('/onboarding')
+  }
 
   return (
     <SidebarProvider>

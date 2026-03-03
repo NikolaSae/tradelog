@@ -49,6 +49,7 @@ export const FEATURE_GATES = {
   UNLIMITED_TRADES:    ['PRO', 'ELITE'],
   CSV_IMPORT:          ['PRO', 'ELITE'],
   ADVANCED_ANALYTICS:  ['PRO', 'ELITE'],
+  ANALYTICS:           ['PRO', 'ELITE'],
   CALENDAR_HEATMAP:    ['PRO', 'ELITE'],
   MAE_MFE_ANALYSIS:    ['PRO', 'ELITE'],
   EXPORT:              ['PRO', 'ELITE'],

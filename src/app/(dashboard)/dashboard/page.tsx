@@ -16,20 +16,22 @@ import { PnlChart } from '@/components/dashboard/pnl-chart'
 import { RecentTrades } from '@/components/dashboard/recent-trades'
 import { formatCurrency } from '@/lib/utils'
 import type { Metadata } from 'next'
+import { checkAlertsForUser } from '@/actions/alerts'
+import { AlertChecker } from '@/components/dashboard/alert-checker'
 
 export const metadata: Metadata = { title: 'Dashboard' }
 
-function buildEquityCurve(closedTrades: any[], initialBalance = 10000) {
+function buildEquityCurve(closedTrades: any[]) {
   const sorted = [...closedTrades].sort(
     (a, b) => new Date(a.closedAt ?? a.openedAt).getTime() - new Date(b.closedAt ?? b.openedAt).getTime()
   )
-  let equity = initialBalance
+  let cumPnl = 0
   return sorted.map((t) => {
     const pnl = Number(t.netPnl ?? 0)
-    equity += pnl
+    cumPnl += pnl
     return {
       date: (t.closedAt ?? t.openedAt).toISOString().split('T')[0],
-      equity: Math.round(equity * 100) / 100,
+      equity: Math.round(cumPnl * 100) / 100,  // kumulativni P&L od 0
       pnl: Math.round(pnl * 100) / 100,
     }
   })
@@ -51,10 +53,12 @@ export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() })
   const userName = session?.user?.name?.split(' ')[0] ?? 'Trader'
 
-  const [stats, allTrades] = await Promise.all([
-    getTradeStats('month'),
-    getTrades({ period: 'month' }),
-  ])
+  const [stats, tradesData] = await Promise.all([
+  getTradeStats('all'),
+  getTrades({ period: 'all' }),
+])
+
+const allTrades = tradesData.trades
 
   const closedTrades = allTrades.filter(t => t.status === 'CLOSED')
   const openTrades = allTrades.filter(t => t.status === 'OPEN')
@@ -64,8 +68,11 @@ export default async function DashboardPage() {
   const dailyPnlData = buildDailyPnl(closedTrades)
 
   const pnlColor = stats.totalNetPnl >= 0 ? 'text-emerald-500' : 'text-red-500'
-
+const triggered = session
+  ? await checkAlertsForUser(session.user.id)
+  : []
   return (
+
     <div className="space-y-6">
       {/* Greeting */}
       <div>
@@ -77,66 +84,72 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Net P&L"
-          value={stats.totalTrades === 0 ? '—' : `${stats.totalNetPnl >= 0 ? '+' : ''}${formatCurrency(stats.totalNetPnl)}`}
-          icon={<DollarSign />}
-          subtitle="Last 30 days"
-          highlight={stats.totalNetPnl > 0}
-          valueClassName={stats.totalTrades > 0 ? pnlColor : undefined}
-        />
-        <KpiCard
-          title="Win Rate"
-          value={stats.totalTrades === 0 ? '—' : `${stats.winRate}%`}
-          icon={<Target />}
-          subtitle={`${stats.winningTrades}W / ${stats.losingTrades}L`}
-          valueClassName={stats.winRate >= 50 ? 'text-emerald-500' : stats.winRate > 0 ? 'text-red-500' : undefined}
-        />
-        <KpiCard
-          title="Profit Factor"
-          value={stats.totalTrades === 0 ? '—' : stats.profitFactor.toFixed(2)}
-          icon={<BarChart2 />}
-          subtitle="Gross wins / gross losses"
-          valueClassName={stats.profitFactor >= 1 ? 'text-emerald-500' : stats.profitFactor > 0 ? 'text-red-500' : undefined}
-        />
-        <KpiCard
-          title="Total Trades"
-          value={stats.totalTrades.toString()}
-          icon={<Activity />}
-          subtitle={openTrades.length > 0 ? `${openTrades.length} open` : 'All closed'}
-        />
-      </div>
+      {/* KPI Grid — red 1 */}
+<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+  <KpiCard
+    title="Net P&L"
+    value={stats.totalTrades === 0 ? '—' : `${stats.totalNetPnl >= 0 ? '+' : ''}${formatCurrency(stats.totalNetPnl)}`}
+    icon={<DollarSign />}
+    subtitle={`${stats.totalTrades} trades total`}
+    highlight={stats.totalNetPnl > 0}
+    valueClassName={stats.totalTrades > 0 ? pnlColor : undefined}
+  />
+  <KpiCard
+    title="Win Rate"
+    value={stats.totalTrades === 0 ? '—' : `${stats.winRate}%`}
+    icon={<Target />}
+    subtitle={`${stats.winningTrades}W / ${stats.losingTrades}L · ${stats.tradingDays} days`}
+    valueClassName={stats.winRate >= 50 ? 'text-emerald-500' : stats.winRate > 0 ? 'text-red-500' : undefined}
+  />
+  <KpiCard
+  title="Profit Factor"
+  value={stats.totalTrades === 0 ? '—' : stats.profitFactor.toFixed(2)}
+  icon={<BarChart2 />}
+  subtitle={
+    stats.totalTrades === 0
+      ? 'Gross wins / gross losses'
+      : `+${formatCurrency(stats.grossWinTotal)} / -${formatCurrency(stats.grossLossTotal)}`
+  }
+  valueClassName={stats.profitFactor >= 1 ? 'text-emerald-500' : stats.profitFactor > 0 ? 'text-red-500' : undefined}
+/>
+  <KpiCard
+    title="Total Trades"
+    value={stats.totalTrades.toString()}
+    icon={<Activity />}
+    subtitle={openTrades.length > 0 ? `${openTrades.length} open` : 'All closed'}
+  />
+</div>
 
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Avg Win"
-          value={stats.avgWin > 0 ? `+${formatCurrency(stats.avgWin)}` : '—'}
-          icon={<TrendingUp />}
-          valueClassName="text-emerald-500"
-        />
-        <KpiCard
-          title="Avg Loss"
-          value={stats.avgLoss > 0 ? `-${formatCurrency(stats.avgLoss)}` : '—'}
-          icon={<TrendingUp />}
-          valueClassName="text-red-500"
-        />
-        <KpiCard
-          title="Expectancy"
-          value={stats.totalTrades === 0 ? '—' : `${stats.expectancy >= 0 ? '+' : ''}${formatCurrency(stats.expectancy)}`}
-          icon={<Award />}
-          subtitle="Per trade"
-          valueClassName={stats.expectancy >= 0 ? 'text-emerald-500' : 'text-red-500'}
-        />
-        <KpiCard
-          title="Avg R-Multiple"
-          value={stats.avgRMultiple !== 0 ? `${stats.avgRMultiple >= 0 ? '+' : ''}${stats.avgRMultiple.toFixed(2)}R` : '—'}
-          icon={<Zap />}
-          valueClassName={stats.avgRMultiple >= 0 ? 'text-emerald-500' : 'text-red-500'}
-        />
-      </div>
+{/* KPI Grid — red 2 */}
+<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+  <KpiCard
+    title="Avg Win"
+    value={stats.avgWin > 0 ? `+${formatCurrency(stats.avgWin)}` : '—'}
+    icon={<TrendingUp />}
+    subtitle={stats.largestWin > 0 ? `Best: +${formatCurrency(stats.largestWin)}` : undefined}
+    valueClassName="text-emerald-500"
+  />
+  <KpiCard
+    title="Avg Loss"
+    value={stats.avgLoss > 0 ? `-${formatCurrency(stats.avgLoss)}` : '—'}
+    icon={<TrendingUp />}
+    subtitle={stats.largestLoss < 0 ? `Worst: ${formatCurrency(stats.largestLoss)}` : undefined}
+    valueClassName="text-red-500"
+  />
+  <KpiCard
+    title="Expectancy"
+    value={stats.totalTrades === 0 ? '—' : `${stats.expectancy >= 0 ? '+' : ''}${formatCurrency(stats.expectancy)}`}
+    icon={<Award />}
+    subtitle="Per trade"
+    valueClassName={stats.expectancy >= 0 ? 'text-emerald-500' : 'text-red-500'}
+  />
+  <KpiCard
+    title="Avg R-Multiple"
+    value={stats.avgRMultiple !== 0 ? `${stats.avgRMultiple >= 0 ? '+' : ''}${stats.avgRMultiple.toFixed(2)}R` : '—'}
+    icon={<Zap />}
+    valueClassName={stats.avgRMultiple >= 0 ? 'text-emerald-500' : 'text-red-500'}
+  />
+</div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -172,6 +185,7 @@ export default async function DashboardPage() {
           </div>
         </div>
         <RecentTrades trades={recentTrades as any} />
+        <AlertChecker triggered={triggered} />
       </div>
     </div>
   )

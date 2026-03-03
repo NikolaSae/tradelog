@@ -26,16 +26,16 @@ interface EquityCurveProps {
 
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
-
   const equity = payload[0]?.value as number
   const pnl = payload[0]?.payload?.pnl as number
-
   return (
     <div className="bg-popover border border-border rounded-lg p-3 shadow-lg text-sm">
       <p className="text-muted-foreground text-xs mb-1">{label}</p>
-      <p className="font-semibold">{formatCurrency(equity)}</p>
+      <p className={`font-semibold ${equity >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+        {equity >= 0 ? '+' : ''}{formatCurrency(equity)} cumulative
+      </p>
       <p className={`text-xs font-medium ${pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-        {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)} trade
+        {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)} this trade
       </p>
     </div>
   )
@@ -92,9 +92,10 @@ export function EquityCurve({ data, initialBalance = 10000 }: EquityCurveProps) 
           tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
           tickLine={false}
           axisLine={false}
-          tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
-          domain={[minEquity - padding, maxEquity + padding]}
-          width={55}
+          tickFormatter={(v) => {
+  if (Math.abs(v) >= 1000) return `${v >= 0 ? '+' : ''}$${(v / 1000).toFixed(1)}k`
+  return `${v >= 0 ? '+' : ''}$${v.toFixed(0)}`
+}}
         />
 
         <Tooltip content={<CustomTooltip />} />

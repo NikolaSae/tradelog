@@ -17,6 +17,7 @@ import {
 import { NavUser } from './nav-user'
 import { cn } from '@/lib/utils'
 import type { User } from '@/lib/auth'
+import { Trophy } from 'lucide-react'
 
 const mainNav = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, pro: false },
@@ -26,6 +27,7 @@ const mainNav = [
   { title: 'Journal', href: '/journal', icon: BookOpen, pro: false },
   { title: 'Goals', href: '/goals', icon: Target, pro: true },
   { title: 'Playbook', href: '/playbook', icon: BookMarked, pro: true },
+  { title: 'Leaderboard', href: '/leaderboard', icon: Trophy, pro: false },
 ]
 
 const toolsNav = [

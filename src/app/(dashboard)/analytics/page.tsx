@@ -1,6 +1,7 @@
 // src/app/(dashboard)/analytics/page.tsx
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { FileBarChart } from 'lucide-react'
 import { headers } from 'next/headers'
 import { BarChart2, TrendingUp, Brain, Shield } from 'lucide-react'
 import { auth } from '@/lib/auth'
@@ -47,7 +48,21 @@ export default async function AnalyticsPage() {
         title="Analytics"
         description="Deep-dive into your trading performance"
       />
-
+<Link
+  href="/analytics/report"
+  className="flex items-center gap-3 bg-card border border-border rounded-xl p-5 hover:border-primary/40 transition-colors group"
+>
+  <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
+    <FileBarChart className="h-5 w-5 text-primary" />
+  </div>
+  <div>
+    <p className="font-semibold">Performance Report</p>
+    <p className="text-sm text-muted-foreground">
+      Full statistical breakdown — P&L, Sharpe, Sortino, CAGR, drawdowns
+    </p>
+  </div>
+  <span className="ml-auto text-muted-foreground group-hover:text-foreground transition-colors">→</span>
+</Link>
       <UpgradeGate feature="ADVANCED_ANALYTICS">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {sections.map((section) => (

@@ -1,4 +1,5 @@
 //// src/app/api/webhooks/stripe/route.ts
+import { sendPaymentFailedEmail } from '@/lib/email/send'
 import { NextRequest, NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
@@ -77,20 +78,22 @@ export async function POST(req: NextRequest) {
       }
 
       case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice
-        const customerId = invoice.customer as string
+  const invoice = event.data.object as Stripe.Invoice
+  const customerId = invoice.customer as string
 
-        const user = await db.query.users.findFirst({
-          where: eq(users.stripeCustomerId, customerId),
-        })
-        if (!user) break
+  const user = await db.query.users.findFirst({
+    where: eq(users.stripeCustomerId, customerId),
+  })
+  if (!user) break
 
-        await db.update(subscriptions)
-          .set({ status: 'PAST_DUE', updatedAt: new Date() })
-          .where(eq(subscriptions.userId, user.id))
+  await db.update(subscriptions)
+    .set({ status: 'PAST_DUE', updatedAt: new Date() })
+    .where(eq(subscriptions.userId, user.id))
 
-        break
-      }
+  // Pošalji email
+  await sendPaymentFailedEmail(user.email, user.name ?? undefined)
+  break
+}
     }
 
     return NextResponse.json({ received: true })

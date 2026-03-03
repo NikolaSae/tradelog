@@ -1,6 +1,6 @@
 //src/db/schema/users.ts
+import { pgTable, text, timestamp, boolean, pgEnum, varchar } from 'drizzle-orm/pg-core'
 
-import { pgTable, text, timestamp, boolean, pgEnum } from 'drizzle-orm/pg-core'
 
 export const planTypeEnum = pgEnum('plan_type', ['FREE', 'PRO', 'ELITE'])
 
@@ -18,6 +18,9 @@ export const users = pgTable('users', {
   referredById: text('referred_by_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  onboardingCompleted: boolean('onboarding_completed').default(false),
+  nickname: varchar('nickname', { length: 50 }),
+  showOnLeaderboard: boolean('show_on_leaderboard').default(true),
 })
 
 export const sessions = pgTable('sessions', {

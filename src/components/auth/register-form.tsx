@@ -48,10 +48,13 @@ export function RegisterForm() {
     })
     if (error) {
       setError(error.message ?? 'Something went wrong')
-    } else {
-      router.push('/dashboard')
-      router.refresh()
-    }
+} else {
+  // Pošalji welcome email
+  fetch('/api/auth/welcome', { method: 'POST' }).catch(console.error)
+  // Redirect na onboarding za nove korisnike
+  router.push('/onboarding')
+  router.refresh()
+}
   }
 
   return (

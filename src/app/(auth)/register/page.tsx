@@ -1,5 +1,4 @@
 //src/app/(auth)/register/page.tsx
-
 import { AuthCard } from '@/components/auth/auth-card'
 import { RegisterForm } from '@/components/auth/register-form'
 import type { Metadata } from 'next'
