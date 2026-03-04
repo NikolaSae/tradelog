@@ -1,6 +1,8 @@
 //src/db/schema/subscriptions.ts
-
-import { pgTable, text, timestamp, boolean, integer, pgEnum } from 'drizzle-orm/pg-core'
+import {
+  pgTable, text, timestamp, boolean,
+  integer, pgEnum, index,
+} from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const subscriptionStatusEnum = pgEnum('subscription_status', [
@@ -19,16 +21,26 @@ export const subscriptions = pgTable('subscriptions', {
   trialEnd: timestamp('trial_end'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (t) => [
+  // Filter po statusu — admin stats, billing queries
+  index('subscriptions_status_idx').on(t.status),
+  // Webhook lookup po stripeSubscriptionId
+  index('subscriptions_stripe_subscription_id_idx').on(t.stripeSubscriptionId),
+])
 
 export const billingHistory = pgTable('billing_history', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   stripeInvoiceId: text('stripe_invoice_id').notNull().unique(),
-  amount: integer('amount').notNull(), // u centima
+  amount: integer('amount').notNull(),
   currency: text('currency').notNull().default('usd'),
   status: text('status').notNull(),
   paidAt: timestamp('paid_at'),
   invoiceUrl: text('invoice_url'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (t) => [
+  // Admin billing queries po korisniku
+  index('billing_history_user_id_idx').on(t.userId),
+  // MRR kalkulacija po datumu i statusu
+  index('billing_history_created_at_status_idx').on(t.createdAt, t.status),
+])

@@ -1,6 +1,8 @@
 //src/db/schema/users.ts
-import { pgTable, text, timestamp, boolean, pgEnum, varchar } from 'drizzle-orm/pg-core'
-
+import {
+  pgTable, text, timestamp, boolean,
+  pgEnum, varchar, index, uniqueIndex,
+} from 'drizzle-orm/pg-core'
 
 export const planTypeEnum = pgEnum('plan_type', ['FREE', 'PRO', 'ELITE'])
 
@@ -21,7 +23,16 @@ export const users = pgTable('users', {
   onboardingCompleted: boolean('onboarding_completed').default(false),
   nickname: varchar('nickname', { length: 50 }),
   showOnLeaderboard: boolean('show_on_leaderboard').default(true),
-})
+}, (t) => [
+  // Filter po planu — koristi se u admin stats i feature gates
+  index('users_plan_idx').on(t.plan),
+  // Filter po leaderboard vidljivosti
+  index('users_show_on_leaderboard_idx').on(t.showOnLeaderboard),
+  // Sort po datumu registracije u admin panelu
+  index('users_created_at_idx').on(t.createdAt),
+  // Webhook lookup po stripeCustomerId
+  index('users_stripe_customer_id_idx').on(t.stripeCustomerId),
+])
 
 export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
@@ -32,7 +43,11 @@ export const sessions = pgTable('sessions', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('sessions_user_id_idx').on(t.userId),
+  // better-auth lookup po tokenu
+  index('sessions_token_idx').on(t.token),
+])
 
 export const accounts = pgTable('accounts', {
   id: text('id').primaryKey(),
@@ -48,7 +63,9 @@ export const accounts = pgTable('accounts', {
   password: text('password'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('accounts_user_id_idx').on(t.userId),
+])
 
 export const verifications = pgTable('verifications', {
   id: text('id').primaryKey(),
@@ -57,4 +74,6 @@ export const verifications = pgTable('verifications', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('verifications_identifier_idx').on(t.identifier),
+])

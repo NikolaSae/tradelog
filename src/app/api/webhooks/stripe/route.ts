@@ -1,4 +1,5 @@
 //// src/app/api/webhooks/stripe/route.ts
+
 import { sendPaymentFailedEmail } from '@/lib/email/send'
 import { NextRequest, NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
@@ -7,6 +8,9 @@ import { subscriptions, users } from '@/db/schema'
 import { stripe } from '@/lib/stripe'
 import { getPlanFromPriceId } from '@/lib/stripe/plans'
 import type Stripe from 'stripe'
+
+// Idempotency — sprječava duplu obradu istog eventa
+const processedEvents = new Set<string>()
 
 export async function POST(req: NextRequest) {
   const body = await req.text()
@@ -28,6 +32,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
+  // Idempotency guard — preskoči ako smo već obradili ovaj event
+  if (processedEvents.has(event.id)) {
+    return NextResponse.json({ received: true, skipped: true })
+  }
+
   try {
     switch (event.type) {
 
@@ -35,13 +44,34 @@ export async function POST(req: NextRequest) {
         const session = event.data.object as Stripe.Checkout.Session
         if (session.mode !== 'subscription') break
 
-        const userId = session.metadata?.userId
-        const plan = session.metadata?.plan
-        if (!userId || !plan) break
+        // FIX: primarni lookup po stripeCustomerId, ne po metadata.userId
+        const customerId = session.customer as string
+        const metadataUserId = session.metadata?.userId
+        const metadataPlan = session.metadata?.plan
+
+        const userId = await resolveUserId(customerId, metadataUserId)
+        if (!userId) {
+          console.error('checkout.session.completed: cannot resolve userId', {
+            customerId,
+            metadataUserId,
+          })
+          break
+        }
+
+        const plan = metadataPlan ?? getPlanFromPriceId(
+          (await stripe.subscriptions.retrieve(session.subscription as string))
+            .items.data[0]?.price.id ?? ''
+        )
+        if (!plan) break
 
         const subscription = await stripe.subscriptions.retrieve(
           session.subscription as string
         )
+
+        // Snimi customerId na usera ako ga još nema
+        await db.update(users)
+          .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+          .where(eq(users.id, userId))
 
         await handleSubscriptionUpsert(userId, subscription, plan as 'PRO' | 'ELITE')
         break
@@ -49,8 +79,18 @@ export async function POST(req: NextRequest) {
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription
-        const userId = subscription.metadata?.userId
-        if (!userId) break
+        const customerId = subscription.customer as string
+        const metadataUserId = subscription.metadata?.userId
+
+        // FIX: primarni lookup po customerId
+        const userId = await resolveUserId(customerId, metadataUserId)
+        if (!userId) {
+          console.error('customer.subscription.updated: cannot resolve userId', {
+            customerId,
+            metadataUserId,
+          })
+          break
+        }
 
         const priceId = subscription.items.data[0]?.price.id
         const plan = priceId ? getPlanFromPriceId(priceId) : null
@@ -62,10 +102,19 @@ export async function POST(req: NextRequest) {
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription
-        const userId = subscription.metadata?.userId
-        if (!userId) break
+        const customerId = subscription.customer as string
+        const metadataUserId = subscription.metadata?.userId
 
-        // Downgrade na FREE
+        // FIX: primarni lookup po customerId
+        const userId = await resolveUserId(customerId, metadataUserId)
+        if (!userId) {
+          console.error('customer.subscription.deleted: cannot resolve userId', {
+            customerId,
+            metadataUserId,
+          })
+          break
+        }
+
         await db.update(users)
           .set({ plan: 'FREE', updatedAt: new Date() })
           .where(eq(users.id, userId))
@@ -78,29 +127,73 @@ export async function POST(req: NextRequest) {
       }
 
       case 'invoice.payment_failed': {
-  const invoice = event.data.object as Stripe.Invoice
-  const customerId = invoice.customer as string
+        const invoice = event.data.object as Stripe.Invoice
+        const customerId = invoice.customer as string
 
-  const user = await db.query.users.findFirst({
-    where: eq(users.stripeCustomerId, customerId),
-  })
-  if (!user) break
+        // Ovaj event nema metadata, mora ići po customerId
+        const user = await db.query.users.findFirst({
+          where: eq(users.stripeCustomerId, customerId),
+        })
+        if (!user) {
+          console.error('invoice.payment_failed: user not found for customer', customerId)
+          break
+        }
 
-  await db.update(subscriptions)
-    .set({ status: 'PAST_DUE', updatedAt: new Date() })
-    .where(eq(subscriptions.userId, user.id))
+        await db.update(subscriptions)
+          .set({ status: 'PAST_DUE', updatedAt: new Date() })
+          .where(eq(subscriptions.userId, user.id))
 
-  // Pošalji email
-  await sendPaymentFailedEmail(user.email, user.name ?? undefined)
-  break
-}
+        await sendPaymentFailedEmail(user.email, user.name ?? undefined)
+        break
+      }
     }
+
+    // Označi event kao obrađen
+    processedEvents.add(event.id)
+    // Čisti set nakon 1h da ne raste beskonačno
+    setTimeout(() => processedEvents.delete(event.id), 60 * 60 * 1000)
 
     return NextResponse.json({ received: true })
   } catch (err) {
     console.error('Webhook error:', err)
     return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 })
   }
+}
+
+/**
+ * FIX: Resolves userId — primarno po stripeCustomerId u bazi,
+ * metadata.userId je samo fallback i assertion check.
+ */
+async function resolveUserId(
+  customerId: string,
+  metadataUserId?: string | null
+): Promise<string | null> {
+  // Primarni lookup: stripeCustomerId u users tabeli
+  const userByCustomer = await db.query.users.findFirst({
+    where: eq(users.stripeCustomerId, customerId),
+  })
+
+  if (userByCustomer) {
+    // Assertion: ako metadata ima userId, treba da se poklapa
+    if (metadataUserId && userByCustomer.id !== metadataUserId) {
+      console.warn('userId mismatch: stripeCustomerId lookup differs from metadata', {
+        fromDb: userByCustomer.id,
+        fromMetadata: metadataUserId,
+        customerId,
+      })
+    }
+    return userByCustomer.id
+  }
+
+  // Fallback: metadata.userId (npr. pri prvom checkout-u kada customerId još nije snimljen)
+  if (metadataUserId) {
+    const userByMetadata = await db.query.users.findFirst({
+      where: eq(users.id, metadataUserId),
+    })
+    return userByMetadata?.id ?? null
+  }
+
+  return null
 }
 
 async function handleSubscriptionUpsert(
@@ -138,7 +231,6 @@ async function handleSubscriptionUpsert(
     })
   }
 
-  // Ažuriraj plan na user tabeli
   await db.update(users)
     .set({ plan: plan as any, updatedAt: new Date() })
     .where(eq(users.id, userId))

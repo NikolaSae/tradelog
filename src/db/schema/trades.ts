@@ -1,7 +1,8 @@
 //src/db/schema/trades.ts
-
-
-import { pgTable, text, timestamp, numeric, integer, boolean, pgEnum } from 'drizzle-orm/pg-core'
+import {
+  pgTable, text, timestamp, numeric, integer,
+  boolean, pgEnum, index, uniqueIndex,
+} from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const directionEnum = pgEnum('direction', ['LONG', 'SHORT'])
@@ -23,7 +24,9 @@ export const brokerAccounts = pgTable('broker_accounts', {
   isDefault: boolean('is_default').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('broker_accounts_user_id_idx').on(t.userId),
+])
 
 export const trades = pgTable('trades', {
   id: text('id').primaryKey(),
@@ -34,14 +37,12 @@ export const trades = pgTable('trades', {
   status: tradeStatusEnum('status').notNull().default('CLOSED'),
   session: tradingSessionEnum('session'),
 
-  // Prices
   entryPrice: numeric('entry_price', { precision: 18, scale: 8 }).notNull(),
   exitPrice: numeric('exit_price', { precision: 18, scale: 8 }),
   stopLoss: numeric('stop_loss', { precision: 18, scale: 8 }),
   takeProfit: numeric('take_profit', { precision: 18, scale: 8 }),
   lotSize: numeric('lot_size', { precision: 18, scale: 4 }).notNull(),
 
-  // P&L
   commission: numeric('commission', { precision: 18, scale: 2 }).default('0'),
   swap: numeric('swap', { precision: 18, scale: 2 }).default('0'),
   grossPnl: numeric('gross_pnl', { precision: 18, scale: 2 }),
@@ -49,20 +50,16 @@ export const trades = pgTable('trades', {
   rMultiple: numeric('r_multiple', { precision: 8, scale: 4 }),
   riskAmount: numeric('risk_amount', { precision: 18, scale: 2 }),
 
-  // Timing
   openedAt: timestamp('opened_at').notNull(),
   closedAt: timestamp('closed_at'),
   durationMinutes: integer('duration_minutes'),
 
-  // MAE/MFE
   mae: numeric('mae', { precision: 18, scale: 2 }),
   mfe: numeric('mfe', { precision: 18, scale: 2 }),
 
-  // Execution
   plannedEntry: numeric('planned_entry', { precision: 18, scale: 8 }),
   slippage: numeric('slippage', { precision: 18, scale: 8 }),
 
-  // Metadata
   setupId: text('setup_id'),
   emotionTag: emotionTagEnum('emotion_tag'),
   checklistPassed: boolean('checklist_passed'),
@@ -73,7 +70,16 @@ export const trades = pgTable('trades', {
 
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+}, (t) => [
+  // Najvažniji kompozitni indeks — koristi se u gotovo svim upitima
+  index('trades_user_id_opened_at_idx').on(t.userId, t.openedAt),
+  // Filter po statusu (CLOSED za analytics, OPEN za dashboard)
+  index('trades_user_id_status_idx').on(t.userId, t.status),
+  // Kompozitni za analytics sa statusom i datumom
+  index('trades_user_id_status_opened_at_idx').on(t.userId, t.status, t.openedAt),
+  // Deduplikacija pri importu
+  uniqueIndex('trades_user_id_external_id_idx').on(t.userId, t.externalId),
+])
 
 export const tradeScreenshots = pgTable('trade_screenshots', {
   id: text('id').primaryKey(),
@@ -81,7 +87,9 @@ export const tradeScreenshots = pgTable('trade_screenshots', {
   url: text('url').notNull(),
   caption: text('caption'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('trade_screenshots_trade_id_idx').on(t.tradeId),
+])
 
 export const tags = pgTable('tags', {
   id: text('id').primaryKey(),
@@ -90,13 +98,18 @@ export const tags = pgTable('tags', {
   color: text('color'),
   type: tagTypeEnum('type').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('tags_user_id_idx').on(t.userId),
+])
 
 export const tradeTags = pgTable('trade_tags', {
   id: text('id').primaryKey(),
   tradeId: text('trade_id').notNull().references(() => trades.id, { onDelete: 'cascade' }),
   tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
-})
+}, (t) => [
+  index('trade_tags_trade_id_idx').on(t.tradeId),
+  index('trade_tags_tag_id_idx').on(t.tagId),
+])
 
 export const brokerImports = pgTable('broker_imports', {
   id: text('id').primaryKey(),
@@ -108,4 +121,6 @@ export const brokerImports = pgTable('broker_imports', {
   tradesCount: integer('trades_count'),
   errorMessage: text('error_message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+}, (t) => [
+  index('broker_imports_user_id_idx').on(t.userId),
+])

@@ -46,7 +46,10 @@ export const auth = betterAuth({
     },
   },
 
-  trustedOrigins: [process.env.BETTER_AUTH_URL ?? 'http://localhost:3000'],
+  trustedOrigins: [
+  'https://fantastic-space-disco-j4pr9rg64g9cpw5p-3000.app.github.dev',
+  'http://localhost:3000',
+],
 })
 
 export type Session = typeof auth.$Infer.Session

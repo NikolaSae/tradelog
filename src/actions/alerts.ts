@@ -1,11 +1,10 @@
 //src/actions/alerts.ts
-
 'use server'
 
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { nanoid } from 'nanoid'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, gte, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '@/db'
 import { alerts, trades } from '@/db/schema'
@@ -82,7 +81,6 @@ export async function deleteAlert(id: string) {
 }
 
 // ── Alert Check Engine ────────────────────────────────────────────────────────
-// Poziva se svaki put kad korisnik doda novi trade
 
 export async function checkAlertsForUser(userId: string) {
   const userAlerts = await db.query.alerts.findMany({
@@ -94,20 +92,28 @@ export async function checkAlertsForUser(userId: string) {
 
   if (userAlerts.length === 0) return []
 
-  // Dohvati tradove za danas
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
 
+  // FIX: DAILY_LOSS_LIMIT i OVERTRADING — SQL filter samo za danas, ne full scan
   const todayTrades = await db.query.trades.findMany({
     where: and(
       eq(trades.userId, userId),
       eq(trades.status, 'CLOSED'),
+      gte(trades.openedAt, todayStart)
     ),
   })
 
-  const todayOnly = todayTrades.filter(
-    t => (t.closedAt ?? t.openedAt) >= todayStart
-  )
+  // FIX: LOSING_STREAK i DRAWDOWN_LIMIT — potrebni su historijski tradovi
+  // ali limitiramo na razumnu količinu, ne cijelu tabelu
+  const recentTrades = await db.query.trades.findMany({
+    where: and(
+      eq(trades.userId, userId),
+      eq(trades.status, 'CLOSED'),
+    ),
+    orderBy: [desc(trades.openedAt)],
+    limit: 200, // dovoljno za streak i drawdown kalkulaciju
+  })
 
   const triggered: { type: string; message: string }[] = []
 
@@ -117,13 +123,27 @@ export async function checkAlertsForUser(userId: string) {
     switch (alert.type) {
 
       case 'DAILY_LOSS_LIMIT': {
-        const dailyPnl = todayOnly.reduce((s, t) => s + Number(t.netPnl ?? 0), 0)
+        // FIX: koristi todayTrades (SQL filtered), ne recentTrades
+        const dailyPnl = todayTrades.reduce((s, t) => s + Number(t.netPnl ?? 0), 0)
         if (dailyPnl <= -threshold) {
           triggered.push({
             type: 'DAILY_LOSS_LIMIT',
             message: `Daily loss limit hit: $${Math.abs(dailyPnl).toFixed(2)} lost today (limit: $${threshold})`,
           })
-          // Ažuriraj lastFired
+          await db.update(alerts)
+            .set({ lastFired: new Date() })
+            .where(eq(alerts.id, alert.id))
+        }
+        break
+      }
+
+      case 'OVERTRADING': {
+        // FIX: koristi todayTrades (SQL filtered)
+        if (todayTrades.length >= threshold) {
+          triggered.push({
+            type: 'OVERTRADING',
+            message: `Overtrading alert: ${todayTrades.length} trades today (limit: ${threshold})`,
+          })
           await db.update(alerts)
             .set({ lastFired: new Date() })
             .where(eq(alerts.id, alert.id))
@@ -132,13 +152,9 @@ export async function checkAlertsForUser(userId: string) {
       }
 
       case 'LOSING_STREAK': {
-        // Provjeri posljednjih N tradova
-        const recent = todayTrades
-          .sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime())
-          .slice(0, Math.ceil(threshold) + 2)
-
+        // FIX: koristi recentTrades (limit 200), sortirani desc već iz DB-a
         let streak = 0
-        for (const t of recent) {
+        for (const t of recentTrades) {
           if (Number(t.netPnl ?? 0) < 0) streak++
           else break
         }
@@ -155,28 +171,13 @@ export async function checkAlertsForUser(userId: string) {
         break
       }
 
-      case 'OVERTRADING': {
-        if (todayOnly.length >= threshold) {
-          triggered.push({
-            type: 'OVERTRADING',
-            message: `Overtrading alert: ${todayOnly.length} trades today (limit: ${threshold})`,
-          })
-          await db.update(alerts)
-            .set({ lastFired: new Date() })
-            .where(eq(alerts.id, alert.id))
-        }
-        break
-      }
-
       case 'DRAWDOWN_LIMIT': {
-        // Maksimalni drawdown od sve vremena
-        const allClosed = todayTrades.sort(
-          (a, b) => new Date(a.openedAt).getTime() - new Date(b.openedAt).getTime()
-        )
+        // FIX: koristi recentTrades (limit 200), sortirani desc — reversujemo za kalkulaciju
+        const sorted = [...recentTrades].reverse() // asc po datumu
         let peak = 0
         let cumPnl = 0
         let maxDD = 0
-        for (const t of allClosed) {
+        for (const t of sorted) {
           cumPnl += Number(t.netPnl ?? 0)
           if (cumPnl > peak) peak = cumPnl
           const dd = peak - cumPnl

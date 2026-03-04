@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { signUp } from '@/lib/auth/client'
+import { authClient } from '@/lib/auth/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,23 +39,20 @@ export function RegisterForm() {
   })
 
   async function onSubmit(values: RegisterValues) {
-    setError(null)
-    const { error } = await signUp.email({
-      email: values.email,
-      password: values.password,
-      name: values.name,
-      callbackURL: '/dashboard',
-    })
-    if (error) {
-      setError(error.message ?? 'Something went wrong')
-} else {
-  // Pošalji welcome email
-  fetch('/api/auth/welcome', { method: 'POST' }).catch(console.error)
-  // Redirect na onboarding za nove korisnike
-  router.push('/onboarding')
-  router.refresh()
-}
+  setError(null)
+  const { error } = await authClient.signUp.email({
+    email: values.email,
+    password: values.password,
+    name: values.name,
+    callbackURL: '/dashboard',
+  })
+  if (error) {
+    setError(error.message ?? 'Something went wrong')
+  } else {
+    router.push('/dashboard')
+    router.refresh()
   }
+}
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

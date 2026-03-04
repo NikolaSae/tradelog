@@ -1,12 +1,10 @@
 //src/app/api/cron/weekly-digest/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
-import { eq, gte, and } from 'drizzle-orm'
+import { eq, gte, and, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, trades } from '@/db/schema'
 import { sendWeeklyDigestEmail } from '@/lib/email/send'
 
-// Zaštiti sa secret tokenom
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -16,56 +14,96 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  // Dohvati sve korisnike
-  const allUsers = await db.query.users.findMany()
+  const weekLabel = `${weekAgo.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+
+  // FIX: jedan SQL upit koji agregira stats po korisniku
+  // umjesto N+1 (jedan query po korisniku u loopu)
+  const digestStats = await db
+    .select({
+      userId: trades.userId,
+      totalTrades:    sql<number>`count(*)`,
+      netPnl:         sql<number>`sum(${trades.netPnl}::numeric)`,
+      winningTrades:  sql<number>`count(*) filter (where ${trades.netPnl}::numeric > 0)`,
+      losingTrades:   sql<number>`count(*) filter (where ${trades.netPnl}::numeric <= 0)`,
+      grossWins:      sql<number>`sum(${trades.netPnl}::numeric) filter (where ${trades.netPnl}::numeric > 0)`,
+      grossLosses:    sql<number>`abs(sum(${trades.netPnl}::numeric) filter (where ${trades.netPnl}::numeric <= 0))`,
+    })
+    .from(trades)
+    .where(and(
+      eq(trades.status, 'CLOSED'),
+      gte(trades.openedAt, weekAgo)
+    ))
+    .groupBy(trades.userId)
+
+  // Korisnici koji imaju bar jedan trade prošle sedmice
+  const activeUserIds = digestStats.map(s => s.userId)
+  if (activeUserIds.length === 0) {
+    return NextResponse.json({ success: true, sent: 0 })
+  }
+
+  // Dohvati user podatke samo za aktivne korisnike
+  const activeUsers = await db.query.users.findMany({
+    where: (u, { inArray }) => inArray(u.id, activeUserIds),
+  })
+  const usersMap = new Map(activeUsers.map(u => [u.id, u]))
+
+  // FIX: best/worst symbol — jedan upit za sve korisnike odjednom
+  const symbolStats = await db
+    .select({
+      userId: trades.userId,
+      symbol: trades.symbol,
+      pnl: sql<number>`sum(${trades.netPnl}::numeric)`,
+    })
+    .from(trades)
+    .where(and(
+      eq(trades.status, 'CLOSED'),
+      gte(trades.openedAt, weekAgo)
+    ))
+    .groupBy(trades.userId, trades.symbol)
+
+  // Grupiši symbol stats po userId
+  const symbolsByUser = new Map<string, { symbol: string; pnl: number }[]>()
+  for (const row of symbolStats) {
+    if (!symbolsByUser.has(row.userId)) symbolsByUser.set(row.userId, [])
+    symbolsByUser.get(row.userId)!.push({ symbol: row.symbol, pnl: Number(row.pnl) })
+  }
 
   let sent = 0
 
-  for (const user of allUsers) {
+  for (const stat of digestStats) {
+    const user = usersMap.get(stat.userId)
+    if (!user) continue
+
     try {
-      // Dohvati tradove za prošlu sedmicu
-      const weekTrades = await db.query.trades.findMany({
-        where: and(
-          eq(trades.userId, user.id),
-          eq(trades.status, 'CLOSED'),
-          gte(trades.openedAt, weekAgo)
-        ),
-      })
-
-      if (weekTrades.length === 0) continue
-
-      // Kalkuliši stats
-      const winners = weekTrades.filter(t => Number(t.netPnl ?? 0) > 0)
-      const losers = weekTrades.filter(t => Number(t.netPnl ?? 0) <= 0)
-      const netPnl = weekTrades.reduce((s, t) => s + Number(t.netPnl ?? 0), 0)
-      const grossWins = winners.reduce((s, t) => s + Number(t.netPnl ?? 0), 0)
-      const grossLosses = Math.abs(losers.reduce((s, t) => s + Number(t.netPnl ?? 0), 0))
-      const profitFactor = grossLosses === 0 ? grossWins : grossWins / grossLosses
-      const winRate = weekTrades.length > 0
-        ? Math.round((winners.length / weekTrades.length) * 1000) / 10
+      const totalTrades = Number(stat.totalTrades)
+      const winningTrades = Number(stat.winningTrades)
+      const losingTrades = Number(stat.losingTrades)
+      const netPnl = Math.round(Number(stat.netPnl) * 100) / 100
+      const grossWins = Number(stat.grossWins ?? 0)
+      const grossLosses = Number(stat.grossLosses ?? 0)
+      const profitFactor = grossLosses === 0
+        ? grossWins
+        : Math.round((grossWins / grossLosses) * 100) / 100
+      const winRate = totalTrades > 0
+        ? Math.round((winningTrades / totalTrades) * 1000) / 10
         : 0
 
-      // Best/worst symbol
-      const bySymbol = new Map<string, number>()
-      for (const t of weekTrades) {
-        bySymbol.set(t.symbol, (bySymbol.get(t.symbol) ?? 0) + Number(t.netPnl ?? 0))
-      }
-      const symbolEntries = Array.from(bySymbol.entries())
-      const bestSymbol = symbolEntries.sort((a, b) => b[1] - a[1])[0]?.[0]
-      const worstSymbol = symbolEntries.sort((a, b) => a[1] - b[1])[0]?.[0]
-
-      const weekLabel = `${weekAgo.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} – ${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+      // Best/worst symbol iz pre-agregiranog mapa
+      const symbols = symbolsByUser.get(stat.userId) ?? []
+      const sorted = symbols.sort((a, b) => b.pnl - a.pnl)
+      const bestSymbol = sorted[0]?.symbol
+      const worstSymbol = sorted.length > 1 ? sorted[sorted.length - 1]?.symbol : undefined
 
       await sendWeeklyDigestEmail(
         user.email,
         user.name ?? 'Trader',
         {
-          totalTrades: weekTrades.length,
+          totalTrades,
           winRate,
-          netPnl: Math.round(netPnl * 100) / 100,
-          profitFactor: Math.round(profitFactor * 100) / 100,
-          winningTrades: winners.length,
-          losingTrades: losers.length,
+          netPnl,
+          profitFactor,
+          winningTrades,
+          losingTrades,
           bestSymbol,
           worstSymbol: bestSymbol !== worstSymbol ? worstSymbol : undefined,
         },

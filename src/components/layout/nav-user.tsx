@@ -5,7 +5,7 @@
 
 import { useRouter } from 'next/navigation'
 import { ChevronsUpDown, LogOut, Settings, User } from 'lucide-react'
-import { signOut } from '@/lib/auth/client'
+import { authClient } from '@/lib/auth/client'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -24,8 +24,10 @@ export function NavUser({ user }: { user: UserType }) {
     : user.email.slice(0, 2).toUpperCase()
 
   async function handleSignOut() {
-    await signOut({ fetchOptions: { onSuccess: () => router.push('/login') } })
-  }
+  await authClient.signOut({
+    fetchOptions: { onSuccess: () => router.push('/login') }
+  })
+}
 
   return (
     <SidebarMenu>
