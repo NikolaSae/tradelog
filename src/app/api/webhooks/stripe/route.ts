@@ -204,18 +204,18 @@ async function handleSubscriptionUpsert(
   })
 
   const subData = {
-    userId,
-    stripeSubscriptionId: subscription.id,
-    stripePriceId: priceId,
-    status: subscription.status.toUpperCase() as any,
-    currentPeriodStart: new Date(subscription.current_period_start * 1000),
-    currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    trialEnd: subscription.trial_end
-      ? new Date(subscription.trial_end * 1000)
-      : null,
-    updatedAt: new Date(),
-  }
+  userId,
+  stripeSubscriptionId: subscription.id,
+  stripePriceId: priceId,
+  status: subscription.status.toUpperCase() as any,
+  currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+  currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+  cancelAtPeriodEnd: subscription.cancel_at_period_end,
+  trialEnd: subscription.trial_end
+    ? new Date(subscription.trial_end * 1000)
+    : null,
+  updatedAt: new Date(),
+}
 
   if (existing) {
     await db.update(subscriptions).set(subData).where(eq(subscriptions.userId, userId))

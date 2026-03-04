@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { signIn } from '@/lib/auth/client'
+import { authClient } from '@/lib/auth/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,11 +35,11 @@ export function LoginForm() {
 
   async function onSubmit(values: LoginValues) {
     setError(null)
-    const { error } = await signIn.email({
-      email: values.email,
-      password: values.password,
-      callbackURL: '/dashboard',
-    })
+    const { error } = await authClient.signIn.email({
+  email: values.email,
+  password: values.password,
+  callbackURL: '/dashboard',
+})
     if (error) {
       setError(error.message ?? 'Invalid email or password')
     } else {

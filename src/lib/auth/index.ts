@@ -47,7 +47,7 @@ export const auth = betterAuth({
   },
 
   // FIX: trustedOrigins iz env-a, ne hardkodovano
-  trustedOrigins: env.TRUSTED_ORIGINS,
+  trustedOrigins: env.TRUSTED_ORIGINS_RAW.split(',').map(o => o.trim()).filter(Boolean),
 })
 
 export type Session = typeof auth.$Infer.Session
