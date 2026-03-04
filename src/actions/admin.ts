@@ -6,10 +6,13 @@ import { eq, desc, gte, lte, sql, and, ilike, or } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, subscriptions, trades, billingHistory } from '@/db/schema'
 import { auth } from '@/lib/auth'
+import { requireRole } from '@/lib/auth/rbac'
+import { auditLogs } from '@/db/schema'
+import { nanoid } from 'nanoid'
 
 async function requireAdminSession() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session) throw new Error('Unauthorized')
+  return requireRole('admin') // umjesto email check-a
+}
 
   const adminEmail = process.env.ADMIN_EMAIL
   if (!adminEmail || session.user.email !== adminEmail) {
@@ -201,11 +204,22 @@ export async function getAdminBilling(limit = 20) {
 // ── Change User Plan ──────────────────────────────────────────────────────────
 
 export async function adminSetUserPlan(userId: string, plan: 'FREE' | 'PRO' | 'ELITE') {
-  await requireAdminSession()
+  const session = await requireAdminSession()
 
   await db.update(users)
     .set({ plan, updatedAt: new Date() })
     .where(eq(users.id, userId))
+
+  // Audit log
+  await db.insert(auditLogs).values({
+    id: nanoid(),
+    userId: session.user.id,
+    action: 'ADMIN_SET_USER_PLAN',
+    entity: 'user',
+    entityId: userId,
+    metadata: { plan, changedBy: session.user.email },
+    createdAt: new Date(),
+  })
 
   return { success: true }
 }

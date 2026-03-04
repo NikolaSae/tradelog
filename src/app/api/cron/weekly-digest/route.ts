@@ -4,10 +4,10 @@ import { eq, gte, and, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, trades } from '@/db/schema'
 import { sendWeeklyDigestEmail } from '@/lib/email/send'
-
+import { env } from '@/config/env'
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

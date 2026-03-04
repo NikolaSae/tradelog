@@ -1,5 +1,7 @@
 //// src/app/api/webhooks/stripe/route.ts
 
+import { processedWebhookEvents } from '@/db/schema'
+import { env } from '@/config/env'
 import { sendPaymentFailedEmail } from '@/lib/email/send'
 import { NextRequest, NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
@@ -9,8 +11,7 @@ import { stripe } from '@/lib/stripe'
 import { getPlanFromPriceId } from '@/lib/stripe/plans'
 import type Stripe from 'stripe'
 
-// Idempotency — sprječava duplu obradu istog eventa
-const processedEvents = new Set<string>()
+
 
 export async function POST(req: NextRequest) {
   const body = await req.text()

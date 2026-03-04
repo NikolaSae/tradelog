@@ -23,6 +23,8 @@ export const users = pgTable('users', {
   onboardingCompleted: boolean('onboarding_completed').default(false),
   nickname: varchar('nickname', { length: 50 }),
   showOnLeaderboard: boolean('show_on_leaderboard').default(true),
+  welcomeEmailSent: boolean('welcome_email_sent').notNull().default(false),
+  role: userRoleEnum('role').notNull().default('user'),
 }, (t) => [
   // Filter po planu — koristi se u admin stats i feature gates
   index('users_plan_idx').on(t.plan),
@@ -33,7 +35,7 @@ export const users = pgTable('users', {
   // Webhook lookup po stripeCustomerId
   index('users_stripe_customer_id_idx').on(t.stripeCustomerId),
 ])
-
+export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'super_admin'])
 export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
   expiresAt: timestamp('expires_at').notNull(),

@@ -1,9 +1,9 @@
 //src/lib/auth/index.ts
-
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { db } from '@/db'
 import * as schema from '@/db/schema'
+import { env } from '@/config/env'
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -18,38 +18,36 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: false, // true u production
+    // FIX: true u produkciji
+    requireEmailVerification: env.NODE_ENV === 'production',
+    // Rate limit na password reset
+    resetPasswordTokenExpiresIn: 60 * 60, // 1h
+  },
+
+  // Rate limiting za auth endpoint-e
+  rateLimit: {
+    window: 60,        // sekundi
+    max: 10,           // max 10 pokušaja u 60s
+    storage: 'memory', // ili 'database' za multi-instance
   },
 
   session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 dana
-    updateAge: 60 * 60 * 24,      // refresh svaki dan
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
   },
 
   user: {
     additionalFields: {
-      plan: {
-        type: 'string',
-        defaultValue: 'FREE',
-        input: false,
-      },
-      timezone: {
-        type: 'string',
-        defaultValue: 'UTC',
-        input: true,
-      },
-      currency: {
-        type: 'string',
-        defaultValue: 'USD',
-        input: true,
-      },
+      plan: { type: 'string', defaultValue: 'FREE', input: false },
+      timezone: { type: 'string', defaultValue: 'UTC', input: true },
+      currency: { type: 'string', defaultValue: 'USD', input: true },
+      role: { type: 'string', defaultValue: 'user', input: false },
+      emailVerificationSentAt: { type: 'date', input: false },
     },
   },
 
-  trustedOrigins: [
-  'https://fantastic-space-disco-j4pr9rg64g9cpw5p-3000.app.github.dev',
-  'http://localhost:3000',
-],
+  // FIX: trustedOrigins iz env-a, ne hardkodovano
+  trustedOrigins: env.TRUSTED_ORIGINS,
 })
 
 export type Session = typeof auth.$Infer.Session

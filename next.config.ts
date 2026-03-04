@@ -1,17 +1,20 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
+
+// Čitamo direktno jer next.config se izvršava prije env validacije
+const trustedOrigins = (process.env.TRUSTED_ORIGINS_RAW ?? 'http://localhost:3000')
+  .split(',')
+  .map((o: string) => o.trim())
+  .filter(Boolean)
+  // next.config treba samo host, bez protokola
+  .map((o: string) => o.replace(/^https?:\/\//, ''))
 
 const nextConfig: NextConfig = {
-  /* config options here */
   reactCompiler: true,
   experimental: {
     serverActions: {
-      bodySizeLimit: '10mb',
-      allowedOrigins: [
-        'localhost:3000',
-        'fantastic-space-disco-j4pr9rg64g9cpw5p-3000.app.github.dev',
-      ],
+      allowedOrigins: trustedOrigins,
     },
   },
-};
+}
 
-export default nextConfig;
+export default nextConfig
