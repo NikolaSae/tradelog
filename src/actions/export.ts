@@ -32,10 +32,10 @@ function getPeriodStart(period: TimePeriod): Date | null {
  */
 function sanitizeCell(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const str = String(value)
+  const str = String(value).trimStart()
   if (str.length === 0) return ''
   // Formula injection prefiksi
-  if ([' =', '+', '-', '@', '\t', '\r'].some(prefix => str.startsWith(prefix))) {
+  if (['=', '+', '-', '@', '\t', '\r'].some(prefix => str.startsWith(prefix))) {
     return `'${str}`
   }
   // Ukloni newline karaktere koji mogu pokvariti CSV strukturu
