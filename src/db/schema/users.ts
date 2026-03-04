@@ -5,6 +5,7 @@ import {
 } from 'drizzle-orm/pg-core'
 
 export const planTypeEnum = pgEnum('plan_type', ['FREE', 'PRO', 'ELITE'])
+export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'super_admin'])
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
@@ -13,6 +14,7 @@ export const users = pgTable('users', {
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
   plan: planTypeEnum('plan').notNull().default('FREE'),
+  role: userRoleEnum('role').notNull().default('user'),
   timezone: text('timezone').notNull().default('UTC'),
   currency: text('currency').notNull().default('USD'),
   stripeCustomerId: text('stripe_customer_id').unique(),
@@ -24,18 +26,13 @@ export const users = pgTable('users', {
   nickname: varchar('nickname', { length: 50 }),
   showOnLeaderboard: boolean('show_on_leaderboard').default(true),
   welcomeEmailSent: boolean('welcome_email_sent').notNull().default(false),
-  role: userRoleEnum('role').notNull().default('user'),
 }, (t) => [
-  // Filter po planu — koristi se u admin stats i feature gates
   index('users_plan_idx').on(t.plan),
-  // Filter po leaderboard vidljivosti
   index('users_show_on_leaderboard_idx').on(t.showOnLeaderboard),
-  // Sort po datumu registracije u admin panelu
   index('users_created_at_idx').on(t.createdAt),
-  // Webhook lookup po stripeCustomerId
   index('users_stripe_customer_id_idx').on(t.stripeCustomerId),
 ])
-export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'super_admin'])
+
 export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
   expiresAt: timestamp('expires_at').notNull(),

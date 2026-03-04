@@ -1,7 +1,7 @@
 //src/db/schema/audit.ts
 
 
-import { pgTable, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, json, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
 export const auditLogs = pgTable('audit_logs', {
