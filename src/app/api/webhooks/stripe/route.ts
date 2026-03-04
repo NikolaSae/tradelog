@@ -1,4 +1,5 @@
 //// src/app/api/webhooks/stripe/route.ts
+// src/app/api/webhooks/stripe/route.ts
 
 import { processedWebhookEvents } from '@/db/schema'
 import { env } from '@/config/env'
@@ -11,8 +12,6 @@ import { stripe } from '@/lib/stripe'
 import { getPlanFromPriceId } from '@/lib/stripe/plans'
 import type Stripe from 'stripe'
 
-
-
 export async function POST(req: NextRequest) {
   const body = await req.text()
   const signature = req.headers.get('stripe-signature')
@@ -24,17 +23,22 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event
 
   try {
+    // FIX: koristi env objekat umjesto process.env
     event = stripe.webhooks.constructEvent(
       body,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      env.STRIPE_WEBHOOK_SECRET
     )
   } catch {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  // Idempotency guard — preskoči ako smo već obradili ovaj event
-  if (processedEvents.has(event.id)) {
+  // FIX: DB idempotency umjesto in-memory Set
+  const alreadyProcessed = await db.query.processedWebhookEvents.findFirst({
+    where: eq(processedWebhookEvents.id, event.id),
+  })
+
+  if (alreadyProcessed) {
     return NextResponse.json({ received: true, skipped: true })
   }
 
@@ -45,7 +49,6 @@ export async function POST(req: NextRequest) {
         const session = event.data.object as Stripe.Checkout.Session
         if (session.mode !== 'subscription') break
 
-        // FIX: primarni lookup po stripeCustomerId, ne po metadata.userId
         const customerId = session.customer as string
         const metadataUserId = session.metadata?.userId
         const metadataPlan = session.metadata?.plan
@@ -69,7 +72,6 @@ export async function POST(req: NextRequest) {
           session.subscription as string
         )
 
-        // Snimi customerId na usera ako ga još nema
         await db.update(users)
           .set({ stripeCustomerId: customerId, updatedAt: new Date() })
           .where(eq(users.id, userId))
@@ -83,7 +85,6 @@ export async function POST(req: NextRequest) {
         const customerId = subscription.customer as string
         const metadataUserId = subscription.metadata?.userId
 
-        // FIX: primarni lookup po customerId
         const userId = await resolveUserId(customerId, metadataUserId)
         if (!userId) {
           console.error('customer.subscription.updated: cannot resolve userId', {
@@ -106,7 +107,6 @@ export async function POST(req: NextRequest) {
         const customerId = subscription.customer as string
         const metadataUserId = subscription.metadata?.userId
 
-        // FIX: primarni lookup po customerId
         const userId = await resolveUserId(customerId, metadataUserId)
         if (!userId) {
           console.error('customer.subscription.deleted: cannot resolve userId', {
@@ -131,7 +131,6 @@ export async function POST(req: NextRequest) {
         const invoice = event.data.object as Stripe.Invoice
         const customerId = invoice.customer as string
 
-        // Ovaj event nema metadata, mora ići po customerId
         const user = await db.query.users.findFirst({
           where: eq(users.stripeCustomerId, customerId),
         })
@@ -149,10 +148,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Označi event kao obrađen
-    processedEvents.add(event.id)
-    // Čisti set nakon 1h da ne raste beskonačno
-    setTimeout(() => processedEvents.delete(event.id), 60 * 60 * 1000)
+    // FIX: atomic DB insert umjesto in-memory Set
+    await db.insert(processedWebhookEvents)
+      .values({
+        id: event.id,
+        type: event.type,
+        processedAt: new Date(),
+      })
+      .onConflictDoNothing()
 
     return NextResponse.json({ received: true })
   } catch (err) {
@@ -161,21 +164,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * FIX: Resolves userId — primarno po stripeCustomerId u bazi,
- * metadata.userId je samo fallback i assertion check.
- */
 async function resolveUserId(
   customerId: string,
   metadataUserId?: string | null
 ): Promise<string | null> {
-  // Primarni lookup: stripeCustomerId u users tabeli
   const userByCustomer = await db.query.users.findFirst({
     where: eq(users.stripeCustomerId, customerId),
   })
 
   if (userByCustomer) {
-    // Assertion: ako metadata ima userId, treba da se poklapa
     if (metadataUserId && userByCustomer.id !== metadataUserId) {
       console.warn('userId mismatch: stripeCustomerId lookup differs from metadata', {
         fromDb: userByCustomer.id,
@@ -186,7 +183,6 @@ async function resolveUserId(
     return userByCustomer.id
   }
 
-  // Fallback: metadata.userId (npr. pri prvom checkout-u kada customerId još nije snimljen)
   if (metadataUserId) {
     const userByMetadata = await db.query.users.findFirst({
       where: eq(users.id, metadataUserId),

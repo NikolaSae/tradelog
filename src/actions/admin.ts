@@ -3,23 +3,14 @@
 
 import { headers } from 'next/headers'
 import { eq, desc, gte, lte, sql, and, ilike, or } from 'drizzle-orm'
-import { db } from '@/db'
-import { users, subscriptions, trades, billingHistory } from '@/db/schema'
-import { auth } from '@/lib/auth'
-import { requireRole } from '@/lib/auth/rbac'
-import { auditLogs } from '@/db/schema'
 import { nanoid } from 'nanoid'
+import { db } from '@/db'
+import { users, subscriptions, trades, billingHistory, auditLogs } from '@/db/schema'
+import { requireRole } from '@/lib/auth/rbac'
 
+// FIX: requireRole umjesto email check-a, nema ostataka starog koda
 async function requireAdminSession() {
-  return requireRole('admin') // umjesto email check-a
-}
-
-  const adminEmail = process.env.ADMIN_EMAIL
-  if (!adminEmail || session.user.email !== adminEmail) {
-    throw new Error('Forbidden')
-  }
-
-  return session
+  return requireRole('admin')
 }
 
 // ── Overview Stats ────────────────────────────────────────────────────────────
@@ -30,7 +21,6 @@ export async function getAdminStats() {
   const now = new Date()
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
   const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  // FIX: bio je gte(endOfLastMonth) umjesto lte — pogrešan range
   const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
 
   const [
@@ -50,7 +40,6 @@ export async function getAdminStats() {
       .from(users)
       .where(gte(users.createdAt, startOfMonth)),
 
-    // FIX: koristimo gte + lte za ispravan range prošlog mjeseca
     db.select({ count: sql<number>`count(*)` })
       .from(users)
       .where(and(
@@ -79,7 +68,6 @@ export async function getAdminStats() {
         eq(billingHistory.status, 'paid')
       )),
 
-    // FIX: billing prošli mjesec takođe treba ispravan range
     db.select({ total: sql<number>`sum(amount)` })
       .from(billingHistory)
       .where(and(
@@ -136,8 +124,6 @@ export async function getAdminUsers({
   await requireAdminSession()
 
   const offset = (page - 1) * limit
-
-  // FIX: search radi u SQL, ne u JS nakon paginacije
   const conditions = []
 
   if (plan && plan !== 'all') {
@@ -156,10 +142,7 @@ export async function getAdminUsers({
   const where = conditions.length > 0 ? and(...conditions) : undefined
 
   const [totalResult, usersList] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` })
-      .from(users)
-      .where(where),
-
+    db.select({ count: sql<number>`count(*)` }).from(users).where(where),
     db.query.users.findMany({
       where,
       orderBy: [desc(users.createdAt)],
@@ -168,13 +151,11 @@ export async function getAdminUsers({
     }),
   ])
 
-  const total = Number(totalResult[0]?.count ?? 0)
-
   return {
     users: usersList,
-    total,
+    total: Number(totalResult[0]?.count ?? 0),
     page,
-    totalPages: Math.ceil(total / limit),
+    totalPages: Math.ceil(Number(totalResult[0]?.count ?? 0) / limit),
   }
 }
 
@@ -210,7 +191,6 @@ export async function adminSetUserPlan(userId: string, plan: 'FREE' | 'PRO' | 'E
     .set({ plan, updatedAt: new Date() })
     .where(eq(users.id, userId))
 
-  // Audit log
   await db.insert(auditLogs).values({
     id: nanoid(),
     userId: session.user.id,
