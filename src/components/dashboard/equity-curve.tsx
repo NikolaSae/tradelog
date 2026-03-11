@@ -1,5 +1,4 @@
 //src/components/dashboard/equity-curve.tsx
-
 'use client'
 
 import {
@@ -34,9 +33,11 @@ function CustomTooltip({ active, payload, label }: any) {
       <p className={`font-semibold ${equity >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
         {equity >= 0 ? '+' : ''}{formatCurrency(equity)} cumulative
       </p>
-      <p className={`text-xs font-medium ${pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-        {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)} this trade
-      </p>
+      {pnl !== 0 && (
+        <p className={`text-xs font-medium ${pnl >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+          {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)} this trade
+        </p>
+      )}
     </div>
   )
 }
@@ -50,10 +51,8 @@ export function EquityCurve({ data, initialBalance = 10000 }: EquityCurveProps) 
     )
   }
 
-  const isPositive = data.length > 0
-    ? data[data.length - 1].equity >= (data[0]?.equity ?? initialBalance)
-    : true
-
+  const lastEquity = data[data.length - 1].equity
+  const isPositive = lastEquity >= 0
   const color = isPositive ? '#10b981' : '#ef4444'
   const gradientId = `equity-gradient-${isPositive ? 'green' : 'red'}`
 
@@ -70,36 +69,33 @@ export function EquityCurve({ data, initialBalance = 10000 }: EquityCurveProps) 
             <stop offset="95%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
-
         <CartesianGrid
           strokeDasharray="3 3"
           stroke="hsl(var(--border))"
           opacity={0.5}
         />
-
         <XAxis
           dataKey="date"
           tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
           tickLine={false}
           axisLine={false}
+          interval="preserveStartEnd"
           tickFormatter={(v) => {
-            const d = new Date(v)
+            const d = new Date(v + 'T00:00:00')
             return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
           }}
         />
-
         <YAxis
+          domain={[minEquity - padding, maxEquity + padding]}
           tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
           tickLine={false}
           axisLine={false}
           tickFormatter={(v) => {
-  if (Math.abs(v) >= 1000) return `${v >= 0 ? '+' : ''}$${(v / 1000).toFixed(1)}k`
-  return `${v >= 0 ? '+' : ''}$${v.toFixed(0)}`
-}}
+            if (Math.abs(v) >= 1000) return `${v >= 0 ? '+' : ''}$${(v / 1000).toFixed(1)}k`
+            return `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(0)}`
+          }}
         />
-
         <Tooltip content={<CustomTooltip />} />
-
         <Area
           type="monotone"
           dataKey="equity"

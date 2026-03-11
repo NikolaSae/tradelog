@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: trustedOrigins,
+      bodySizeLimit: '10mb',
     },
   },
 }
