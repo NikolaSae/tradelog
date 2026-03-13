@@ -14,25 +14,35 @@ async function getSession() {
   return session
 }
 
+// Lokalni datum string YYYY-MM-DD bez UTC konverzije
+function toLocalDateStr(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 export async function getCalendarData(year: number, month: number) {
   const session = await getSession()
   const userId = session.user.id
 
-  const from = new Date(year, month - 1, 1)
-  const to = new Date(year, month, 0, 23, 59, 59)
+  const from = new Date(year, month - 1, 1, 0, 0, 0, 0)
+  const to = new Date(year, month, 0, 23, 59, 59, 999)
 
   const allTrades = await db.query.trades.findMany({
     where: and(
       eq(trades.userId, userId),
       eq(trades.status, 'CLOSED'),
-      gte(trades.openedAt, from),
-      lte(trades.openedAt, to)
+      // ← closedAt umjesto openedAt
+      gte(trades.closedAt, from),
+      lte(trades.closedAt, to)
     ),
   })
 
   const map = new Map<string, { pnl: number; count: number; wins: number }>()
   for (const t of allTrades) {
-    const date = new Date(t.openedAt).toISOString().split('T')[0]
+    // ← closedAt za grupiranje
+    const date = toLocalDateStr(new Date(t.closedAt!))
     const existing = map.get(date) ?? { pnl: 0, count: 0, wins: 0 }
     const pnl = Number(t.netPnl ?? 0)
     map.set(date, {
@@ -54,16 +64,17 @@ export async function getTradesForDate(date: string) {
   const session = await getSession()
   const userId = session.user.id
 
-  const from = new Date(date + 'T00:00:00')
-  const to = new Date(date + 'T23:59:59')
+  const from = new Date(date + 'T00:00:00.000')
+  const to = new Date(date + 'T23:59:59.999')
 
   return db.query.trades.findMany({
     where: and(
       eq(trades.userId, userId),
-      gte(trades.openedAt, from),
-      lte(trades.openedAt, to)
+      // ← closedAt umjesto openedAt
+      gte(trades.closedAt, from),
+      lte(trades.closedAt, to)
     ),
-    orderBy: (trades, { asc }) => [asc(trades.openedAt)],
+    orderBy: (trades, { asc }) => [asc(trades.closedAt)],
   })
 }
 
