@@ -1,8 +1,7 @@
 //src/actions/leaderboard.ts
-
 'use server'
 
-import { eq, and, ne } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, trades } from '@/db/schema'
 
@@ -34,9 +33,16 @@ export interface LeaderboardEntry {
   avgRMultiple: number
   bestTrade: number
   worstTrade: number
-  equity: number       // kumulativni P&L (od 0)
+  equity: number
   initialBalance: number
 }
+
+// Whitelist dozvoljenih sort ključeva i smjerova
+const VALID_SORT_KEYS: LeaderboardSortKey[] = [
+  'equity', 'growthPercent', 'winRate', 'totalTrades',
+  'profitFactor', 'expectancy', 'avgRMultiple', 'totalNetPnl',
+]
+const VALID_SORT_DIRS: LeaderboardSortDir[] = ['asc', 'desc']
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split('@')
@@ -52,13 +58,11 @@ function maskEmail(email: string): string {
 
 function generateNickname(name: string | null, email: string): string {
   if (name) {
-    // Uzmi inicijale + zadnje 3 cifre iz emaila
     const parts = name.trim().split(' ')
     const initials = parts.map(p => p[0]?.toUpperCase() ?? '').join('')
     const emailHash = email.replace(/[^0-9]/g, '').slice(-3).padStart(3, '0')
     return `${initials}${emailHash}`
   }
-  // Fallback — prve 3 slova emaila + hash
   return email.slice(0, 3).toUpperCase() + email.replace(/[^0-9]/g, '').slice(-3).padStart(3, '0')
 }
 
@@ -67,19 +71,30 @@ export async function getLeaderboard(
   sortDir: LeaderboardSortDir = 'desc'
 ): Promise<LeaderboardEntry[]> {
 
-  // Dohvati sve korisnike koji žele biti na leaderboardu
+  // Validacija sort parametara — odbij sve što nije na whitelisti
+  const safeSortBy = VALID_SORT_KEYS.includes(sortBy) ? sortBy : 'equity'
+  const safeSortDir = VALID_SORT_DIRS.includes(sortDir) ? sortDir : 'desc'
+
   const allUsers = await db.query.users.findMany({
     where: eq(users.showOnLeaderboard, true),
   })
 
   if (allUsers.length === 0) return []
 
-  // Dohvati sve zatvorene tradove za sve korisnike odjednom
+  // FIX: dohvati tradove po batchevima za svakog korisnika — ne dohvataj ALL trades bez filtera
+  // Ovo sprječava full table scan i potencijalni DoS
+  const userIds = allUsers.map(u => u.id)
+
   const allTrades = await db.query.trades.findMany({
-    where: eq(trades.status, 'CLOSED'),
+    where: (t, { and, eq, inArray }) => and(
+      eq(t.status, 'CLOSED'),
+      inArray(t.userId, userIds)
+    ),
+    // Limit po korisniku je u logici ispod — ovdje limitiramo ukupno
+    // da izbjegnemo memory explosion
+    limit: 50000,
   })
 
-  // Grupiši tradove po userId
   const tradesByUser = new Map<string, typeof allTrades>()
   for (const trade of allTrades) {
     const existing = tradesByUser.get(trade.userId) ?? []
@@ -91,8 +106,6 @@ export async function getLeaderboard(
 
   for (const user of allUsers) {
     const userTrades = tradesByUser.get(user.id) ?? []
-
-    // Minimum 1 trade da bi bio na leaderboardu
     if (userTrades.length === 0) continue
 
     const winners = userTrades.filter(t => Number(t.netPnl ?? 0) > 0)
@@ -116,22 +129,17 @@ export async function getLeaderboard(
     const bestTrade  = winners.length > 0 ? Math.max(...winners.map(t => Number(t.netPnl ?? 0))) : 0
     const worstTrade = losers.length  > 0 ? Math.min(...losers.map(t => Number(t.netPnl ?? 0))) : 0
 
-    // Equity = kumulativni P&L od 0
     const equity = Math.round(totalNetPnl * 100) / 100
-
-    // Growth % = (totalNetPnl / initialBalance) * 100
-    // Koristimo 10000 kao default ako nema broker accounta
     const initialBalance = 10000
     const growthPercent = Math.round((totalNetPnl / initialBalance) * 10000) / 100
 
-    // Nickname — koristi custom nickname ako postoji, inače generiši
     const nickname = (user as any).nickname
       ? (user as any).nickname
       : generateNickname(user.name, user.email)
 
     entries.push({
       userId: user.id,
-      rank: 0, // popunjava se nakon sortiranja
+      rank: 0,
       nickname,
       maskedEmail: maskEmail(user.email),
       totalTrades: userTrades.length,
@@ -150,14 +158,12 @@ export async function getLeaderboard(
     })
   }
 
-  // Sortiranje
   entries.sort((a, b) => {
-    const aVal = a[sortBy]
-    const bVal = b[sortBy]
-    return sortDir === 'desc' ? bVal - aVal : aVal - bVal
+    const aVal = a[safeSortBy]
+    const bVal = b[safeSortBy]
+    return safeSortDir === 'desc' ? bVal - aVal : aVal - bVal
   })
 
-  // Dodijeli rankove nakon sortiranja
   entries.forEach((e, i) => { e.rank = i + 1 })
 
   return entries

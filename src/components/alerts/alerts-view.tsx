@@ -1,8 +1,8 @@
 //src/components/alerts/alerts-view.tsx
-
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Bell, BellOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { createAlert, deleteAlert, toggleAlert } from '@/actions/alerts'
@@ -63,7 +63,11 @@ const ALERT_TYPES = [
     placeholder: '10',
     icon: '⚡',
   },
-]
+] as const
+
+type AlertTypeValue = typeof ALERT_TYPES[number]['value']
+
+const VALID_ALERT_TYPES = ALERT_TYPES.map(t => t.value)
 
 function getAlertMeta(type: string) {
   return ALERT_TYPES.find(a => a.value === type) ?? {
@@ -71,42 +75,85 @@ function getAlertMeta(type: string) {
     description: '',
     unit: '',
     icon: '🔔',
+    placeholder: '0',
   }
 }
 
 export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
+  const router = useRouter()
   const [alerts, setAlerts] = useState(initialAlerts)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState<AlertFormValues>({
+  const [toggling, setToggling] = useState<string | null>(null)
+  const [form, setForm] = useState<{ type: AlertTypeValue; threshold: number }>({
     type: 'DAILY_LOSS_LIMIT',
     threshold: 0,
   })
 
   async function handleCreate() {
-    setSaving(true)
-    const result = await createAlert(form)
-    setSaving(false)
-    if (result.error) {
-      toast.error(result.error)
+    // Client-side validacija
+    if (!VALID_ALERT_TYPES.includes(form.type)) {
+      toast.error('Invalid alert type')
       return
     }
-    toast.success('Alert created')
-    setShowForm(false)
-    window.location.reload()
+    if (!form.threshold || form.threshold <= 0 || form.threshold > 1_000_000) {
+      toast.error('Threshold must be a positive number (max 1,000,000)')
+      return
+    }
+    if (!Number.isFinite(form.threshold)) {
+      toast.error('Invalid threshold value')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const result = await createAlert(form)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      toast.success('Alert created')
+      setShowForm(false)
+      setForm({ type: 'DAILY_LOSS_LIMIT', threshold: 0 })
+      router.refresh() // umjesto window.location.reload()
+    } catch {
+      toast.error('Failed to create alert. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleToggle(id: string) {
-    await toggleAlert(id)
-    setAlerts(prev =>
-      prev.map(a => a.id === id ? { ...a, isActive: !a.isActive } : a)
-    )
+    if (toggling) return // spriječi dvostruki klik
+    setToggling(id)
+    try {
+      const result = await toggleAlert(id)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      setAlerts(prev =>
+        prev.map(a => a.id === id ? { ...a, isActive: !a.isActive } : a)
+      )
+    } catch {
+      toast.error('Failed to toggle alert.')
+    } finally {
+      setToggling(null)
+    }
   }
 
   async function handleDelete(id: string) {
-    await deleteAlert(id)
-    setAlerts(prev => prev.filter(a => a.id !== id))
-    toast.success('Alert deleted')
+    try {
+      const result = await deleteAlert(id)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      setAlerts(prev => prev.filter(a => a.id !== id))
+      toast.success('Alert deleted')
+    } catch {
+      toast.error('Failed to delete alert.')
+    }
   }
 
   return (
@@ -118,7 +165,6 @@ export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
         </Button>
       </div>
 
-      {/* Create form */}
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-6 space-y-4">
           <h3 className="font-semibold">New Alert</h3>
@@ -129,7 +175,7 @@ export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
               {ALERT_TYPES.map(type => (
                 <button
                   key={type.value}
-                  onClick={() => setForm(f => ({ ...f, type: type.value as any }))}
+                  onClick={() => setForm(f => ({ ...f, type: type.value }))}
                   className={cn(
                     'flex items-center gap-3 p-3 rounded-lg border text-left transition-all',
                     form.type === type.value
@@ -153,8 +199,16 @@ export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
             </Label>
             <Input
               type="number"
+              min={1}
+              max={1_000_000}
+              step={form.type === 'LOSING_STREAK' || form.type === 'OVERTRADING' ? 1 : 0.01}
               value={form.threshold || ''}
-              onChange={e => setForm(f => ({ ...f, threshold: Number(e.target.value) }))}
+              onChange={e => {
+                const val = Number(e.target.value)
+                // Odbij NaN, negativne i ekstremne vrijednosti na klijentu
+                if (isNaN(val) || val < 0 || val > 1_000_000) return
+                setForm(f => ({ ...f, threshold: val }))
+              }}
               placeholder={getAlertMeta(form.type).placeholder}
             />
           </div>
@@ -170,7 +224,6 @@ export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
         </div>
       )}
 
-      {/* Alerts list */}
       {alerts.length === 0 && !showForm ? (
         <EmptyState
           icon={Bell}
@@ -215,10 +268,10 @@ export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* Toggle */}
                   <button
                     onClick={() => handleToggle(alert.id)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    disabled={toggling !== null}
+                    className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                     title={alert.isActive ? 'Pause alert' : 'Enable alert'}
                   >
                     {alert.isActive
@@ -227,7 +280,6 @@ export function AlertsView({ alerts: initialAlerts }: AlertsViewProps) {
                     }
                   </button>
 
-                  {/* Delete */}
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <button className="text-muted-foreground hover:text-destructive transition-colors">

@@ -1,9 +1,8 @@
 //src/components/auth/register-form.tsx
 
-
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
@@ -15,9 +14,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const registerSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name is too long'),
+  email: z.string().email('Invalid email address').max(254),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128, 'Password is too long'),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -26,9 +27,13 @@ const registerSchema = z.object({
 
 type RegisterValues = z.infer<typeof registerSchema>
 
+// Generička poruka — ne otkriva da li email već postoji
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
+
 export function RegisterForm() {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
+  const submittingRef = useRef(false)
 
   const {
     register,
@@ -39,23 +44,34 @@ export function RegisterForm() {
   })
 
   async function onSubmit(values: RegisterValues) {
-  setError(null)
-  const { error } = await authClient.signUp.email({
-    email: values.email,
-    password: values.password,
-    name: values.name,
-    callbackURL: '/dashboard',
-  })
-  if (error) {
-    setError(error.message ?? 'Something went wrong')
-  } else {
-    router.push('/dashboard')
-    router.refresh()
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setError(null)
+
+    try {
+      const { error } = await authClient.signUp.email({
+        email: values.email,
+        password: values.password,
+        name: values.name,
+        callbackURL: '/dashboard',
+      })
+
+      if (error) {
+        // Ne exposuj da li email već postoji — to je user enumeration
+        setError(GENERIC_ERROR)
+      } else {
+        router.push('/dashboard')
+        router.refresh()
+      }
+    } catch {
+      setError(GENERIC_ERROR)
+    } finally {
+      submittingRef.current = false
+    }
   }
-}
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       <div className="space-y-2">
         <Label htmlFor="name">Full name</Label>
         <Input
@@ -63,6 +79,7 @@ export function RegisterForm() {
           type="text"
           placeholder="John Doe"
           autoComplete="name"
+          maxLength={100}
           {...register('name')}
         />
         {errors.name && (
@@ -77,6 +94,7 @@ export function RegisterForm() {
           type="email"
           placeholder="you@example.com"
           autoComplete="email"
+          maxLength={254}
           {...register('email')}
         />
         {errors.email && (
@@ -91,6 +109,7 @@ export function RegisterForm() {
           type="password"
           placeholder="••••••••"
           autoComplete="new-password"
+          maxLength={128}
           {...register('password')}
         />
         {errors.password && (
@@ -105,6 +124,7 @@ export function RegisterForm() {
           type="password"
           placeholder="••••••••"
           autoComplete="new-password"
+          maxLength={128}
           {...register('confirmPassword')}
         />
         {errors.confirmPassword && (

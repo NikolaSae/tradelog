@@ -1,5 +1,4 @@
 //src/app/(dashboard)/alerts/page.tsx
-
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'

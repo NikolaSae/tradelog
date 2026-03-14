@@ -1,8 +1,7 @@
 //src/components/settings/profile-form.tsx
-
 'use client'
 
-import { useState } from 'react'
+import { useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -16,30 +15,36 @@ import {
   SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { useState } from 'react'
 import type { User } from '@/lib/auth'
-
-const schema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(100),
-  timezone: z.string().optional(),
-  currency: z.string().optional(),
-})
-
-type FormValues = z.infer<typeof schema>
 
 const TIMEZONES = [
   'UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
   'America/Los_Angeles', 'Europe/London', 'Europe/Belgrade',
   'Europe/Berlin', 'Europe/Paris', 'Asia/Tokyo',
   'Asia/Singapore', 'Asia/Dubai', 'Australia/Sydney',
-]
+] as const
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF']
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF'] as const
+
+type TimezoneValue = typeof TIMEZONES[number]
+type CurrencyValue = typeof CURRENCIES[number]
+
+// Whitelist validacija u schema
+const schema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100),
+  timezone: z.enum(TIMEZONES).optional(),
+  currency: z.enum(CURRENCIES).optional(),
+})
+
+type FormValues = z.infer<typeof schema>
 
 interface ProfileFormProps {
   user: User
 }
 
 export function ProfileForm({ user }: ProfileFormProps) {
+  const submittingRef = useRef(false)
   const [nickname, setNickname] = useState((user as any).nickname ?? '')
   const [showOnLeaderboard, setShowOnLeaderboard] = useState(
     (user as any).showOnLeaderboard ?? true
@@ -55,31 +60,55 @@ export function ProfileForm({ user }: ProfileFormProps) {
     resolver: zodResolver(schema),
     defaultValues: {
       name: user.name ?? '',
-      timezone: (user as any).timezone ?? 'UTC',
-      currency: (user as any).currency ?? 'USD',
+      timezone: ((user as any).timezone ?? 'UTC') as TimezoneValue,
+      currency: ((user as any).currency ?? 'USD') as CurrencyValue,
     },
   })
 
   async function onSubmit(values: FormValues) {
-    const result = await updateProfile({
-      ...values,
-      nickname,
-      showOnLeaderboard,
-    })
-    if (result.error) {
-      toast.error(result.error)
-    } else {
-      toast.success('Profile updated')
+    if (submittingRef.current) return
+    submittingRef.current = true
+
+    // Client-side validacija nickname-a
+    const trimmedNickname = nickname.trim()
+    if (trimmedNickname.length > 50) {
+      toast.error('Nickname is too long (max 50 characters)')
+      submittingRef.current = false
+      return
+    }
+
+    try {
+      const result = await updateProfile({
+        ...values,
+        nickname: trimmedNickname,
+        showOnLeaderboard,
+      })
+
+      if (result.error) {
+        // Generička poruka — ne exposuj server detalje
+        toast.error('Failed to update profile. Please try again.')
+      } else {
+        toast.success('Profile updated')
+      }
+    } catch {
+      toast.error('Something went wrong. Please try again.')
+    } finally {
+      submittingRef.current = false
     }
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 max-w-md">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 max-w-md" noValidate>
       {/* Name & Nickname */}
       <div className="bg-card border border-border rounded-xl p-6 space-y-4">
         <div className="space-y-2">
           <Label htmlFor="name">Full Name</Label>
-          <Input id="name" placeholder="Your name" {...register('name')} />
+          <Input
+            id="name"
+            placeholder="Your name"
+            maxLength={100}
+            {...register('name')}
+          />
           {errors.name && (
             <p className="text-destructive text-sm">{errors.name.message}</p>
           )}
@@ -92,7 +121,7 @@ export function ProfileForm({ user }: ProfileFormProps) {
           </Label>
           <Input
             value={nickname}
-            onChange={e => setNickname(e.target.value)}
+            onChange={e => setNickname(e.target.value.slice(0, 50))}
             placeholder="e.g. TradingKing, FX_Wolf"
             maxLength={50}
           />
@@ -122,7 +151,12 @@ export function ProfileForm({ user }: ProfileFormProps) {
           <Label>Timezone</Label>
           <Select
             value={watch('timezone')}
-            onValueChange={v => setValue('timezone', v)}
+            onValueChange={v => {
+              // Whitelist provjera — TypeScript enum to je već, ali runtime check je dobar
+              if (TIMEZONES.includes(v as TimezoneValue)) {
+                setValue('timezone', v as TimezoneValue)
+              }
+            }}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select timezone" />
@@ -139,7 +173,11 @@ export function ProfileForm({ user }: ProfileFormProps) {
           <Label>Default Currency</Label>
           <Select
             value={watch('currency')}
-            onValueChange={v => setValue('currency', v)}
+            onValueChange={v => {
+              if (CURRENCIES.includes(v as CurrencyValue)) {
+                setValue('currency', v as CurrencyValue)
+              }
+            }}
           >
             <SelectTrigger>
               <SelectValue />
@@ -167,6 +205,7 @@ export function ProfileForm({ user }: ProfileFormProps) {
               'relative w-11 h-6 rounded-full transition-colors shrink-0',
               showOnLeaderboard ? 'bg-primary' : 'bg-muted'
             )}
+            aria-label={showOnLeaderboard ? 'Hide from leaderboard' : 'Show on leaderboard'}
           >
             <span className={cn(
               'absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform',

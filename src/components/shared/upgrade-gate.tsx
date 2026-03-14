@@ -16,14 +16,11 @@ interface UpgradeGateProps {
   blur?: boolean
 }
 
-export function UpgradeGate({
-  feature,
-  children,
-  fallback,
-  blur = true,
-}: UpgradeGateProps) {
+export function UpgradeGate({ feature, children, fallback, blur = true }: UpgradeGateProps) {
   const { hasAccess, isPending } = useFeatureGate(feature)
-
+  
+  console.log('[UpgradeGate]', feature, { hasAccess, isPending })
+  
   if (isPending) return null
   if (hasAccess) return <>{children}</>
 

@@ -81,9 +81,10 @@ export function EquityCurve({ data, initialBalance = 10000 }: EquityCurveProps) 
           axisLine={false}
           interval="preserveStartEnd"
           tickFormatter={(v) => {
-            const d = new Date(v + 'T00:00:00')
-            return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-          }}
+          const [year, month, day] = (v as string).split('-').map(Number)
+          const d = new Date(year, month - 1, day)
+          return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+        }}
         />
         <YAxis
           domain={[minEquity - padding, maxEquity + padding]}

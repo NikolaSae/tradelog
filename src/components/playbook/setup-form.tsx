@@ -1,8 +1,7 @@
 //src/components/playbook/setup-form.tsx
-
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createSetup, updateSetup } from '@/actions/playbook'
@@ -29,6 +28,7 @@ export function SetupForm({ setup }: SetupFormProps) {
   const router = useRouter()
   const isEdit = !!setup
   const [saving, setSaving] = useState(false)
+  const submittingRef = useRef(false)
   const [form, setForm] = useState<SetupFormValues>({
     name: setup?.name ?? '',
     description: setup?.description ?? '',
@@ -44,19 +44,38 @@ export function SetupForm({ setup }: SetupFormProps) {
   }
 
   async function handleSubmit() {
-    setSaving(true)
-    const result = isEdit
-      ? await updateSetup(setup!.id, form)
-      : await createSetup(form)
-
-    if (result.error) {
-      toast.error(result.error)
-      setSaving(false)
+    // Client-side validacija
+    if (!form.name.trim()) {
+      toast.error('Setup name is required')
       return
     }
+    if (form.name.trim().length > 100) {
+      toast.error('Setup name is too long')
+      return
+    }
+    if (submittingRef.current) return
 
-    toast.success(isEdit ? 'Setup updated' : 'Setup created')
-    router.push(isEdit ? `/playbook/${setup!.id}` : '/playbook')
+    submittingRef.current = true
+    setSaving(true)
+
+    try {
+      const result = isEdit
+        ? await updateSetup(setup!.id, { ...form, name: form.name.trim() })
+        : await createSetup({ ...form, name: form.name.trim() })
+
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+
+      toast.success(isEdit ? 'Setup updated' : 'Setup created')
+      router.push(isEdit ? `/playbook/${setup!.id}` : '/playbook')
+    } catch {
+      toast.error('Failed to save setup. Please try again.')
+    } finally {
+      setSaving(false)
+      submittingRef.current = false
+    }
   }
 
   return (
@@ -67,6 +86,7 @@ export function SetupForm({ setup }: SetupFormProps) {
           value={form.name}
           onChange={e => update('name', e.target.value)}
           placeholder="e.g. London Breakout, ICT Order Block..."
+          maxLength={100}
         />
       </div>
 
@@ -77,6 +97,7 @@ export function SetupForm({ setup }: SetupFormProps) {
           onChange={e => update('description', e.target.value)}
           placeholder="Brief overview of this setup..."
           rows={2}
+          maxLength={1000}
         />
       </div>
 
@@ -87,6 +108,7 @@ export function SetupForm({ setup }: SetupFormProps) {
             value={form.timeframe}
             onChange={e => update('timeframe', e.target.value)}
             placeholder="15m, 1H, 4H..."
+            maxLength={50}
           />
         </div>
         <div className="space-y-2">
@@ -95,6 +117,7 @@ export function SetupForm({ setup }: SetupFormProps) {
             value={form.markets}
             onChange={e => update('markets', e.target.value)}
             placeholder="EURUSD, Gold, NQ..."
+            maxLength={200}
           />
         </div>
       </div>
@@ -106,6 +129,7 @@ export function SetupForm({ setup }: SetupFormProps) {
           onChange={e => update('entryRules', e.target.value)}
           placeholder="What conditions must be met to enter?&#10;1. ..."
           rows={4}
+          maxLength={3000}
         />
       </div>
 
@@ -116,6 +140,7 @@ export function SetupForm({ setup }: SetupFormProps) {
           onChange={e => update('exitRules', e.target.value)}
           placeholder="TP: ...&#10;SL: ..."
           rows={4}
+          maxLength={3000}
         />
       </div>
 
@@ -126,6 +151,7 @@ export function SetupForm({ setup }: SetupFormProps) {
           onChange={e => update('riskRules', e.target.value)}
           placeholder="Max risk per trade, lot sizing..."
           rows={3}
+          maxLength={2000}
         />
       </div>
 

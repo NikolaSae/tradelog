@@ -14,7 +14,12 @@ async function getSession() {
   if (!session) throw new Error('Unauthorized')
   return session
 }
+const VALID_PERIODS = ['day', 'week', 'month', 'quarter', 'year', 'all'] as const
 
+function validatePeriod(period: unknown): TimePeriod {
+  if (!VALID_PERIODS.includes(period as TimePeriod)) throw new Error('Invalid period')
+  return period as TimePeriod
+}
 function getFromDate(period: TimePeriod): Date | null {
   if (period === 'all') return null
   const from = new Date()
@@ -130,6 +135,7 @@ function calcMaxRunup(pnlSeries: number[], initialCapital: number): {
 export async function getAnalyticsReport(period: TimePeriod = 'all') {
   const session = await getSession()
   const userId = session.user.id
+  const validPeriod = validatePeriod(period)
   const from = getFromDate(period)
 
   // Dohvati initial balance iz default broker accounta

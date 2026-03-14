@@ -1,5 +1,4 @@
 //src/app/(dashboard)/analytics/report/page.tsx
-
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
@@ -11,6 +10,8 @@ import type { TimePeriod } from '@/types/trade'
 
 export const metadata: Metadata = { title: 'Performance Report' }
 
+const VALID_PERIODS: TimePeriod[] = ['day', 'week', 'month', 'quarter', 'year', 'all']
+
 interface PageProps {
   searchParams: Promise<{ period?: string }>
 }
@@ -20,7 +21,12 @@ export default async function ReportPage({ searchParams }: PageProps) {
   if (!session) redirect('/login')
 
   const params = await searchParams
-  const period = (params.period ?? 'all') as TimePeriod
+
+  // Validacija period-a — fallback na 'all' ako nije validan
+  const rawPeriod = params.period ?? 'all'
+  const period: TimePeriod = VALID_PERIODS.includes(rawPeriod as TimePeriod)
+    ? (rawPeriod as TimePeriod)
+    : 'all'
 
   const report = await getAnalyticsReport(period)
 

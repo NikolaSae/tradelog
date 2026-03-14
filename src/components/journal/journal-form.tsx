@@ -1,19 +1,20 @@
-//src/components/journal/journal-form.tsx
-
+// src/components/journal/journal-form.tsx
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { upsertJournal } from '@/actions/journal'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 interface JournalFormProps {
   date: string
   defaultValues?: {
+    id?: string // ← dodati
     mood?: number | null
     preSessionNotes?: string | null
     postSessionNotes?: string | null
@@ -32,9 +33,22 @@ const MOODS = [
   { value: 5, emoji: '🔥', label: 'Great' },
 ]
 
-export function JournalForm({ date, defaultValues }: JournalFormProps) {
+function getTodayStr(): string {
+  const now = new Date()
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+}
+
+export function JournalForm({ date: initialDate, defaultValues }: JournalFormProps) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
+  const submittingRef = useRef(false)
+
+  // Datum je editabilan — korisnik može promijeniti
+  const [date, setDate] = useState(initialDate)
+  const today = getTodayStr()
+
+  const isEdit = !!defaultValues
+
   const [mood, setMood] = useState<number | undefined>(defaultValues?.mood ?? undefined)
   const [rulesFollowed, setRulesFollowed] = useState<boolean | undefined>(
     defaultValues?.rulesFollowed ?? undefined
@@ -45,31 +59,90 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
   const [marketConditions, setMarketConditions] = useState(defaultValues?.marketConditions ?? '')
   const [planForTomorrow, setPlanForTomorrow] = useState(defaultValues?.planForTomorrow ?? '')
 
+  function handleDateChange(val: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return
+    if (val > today) {
+      toast.error('Cannot create journal entry for a future date')
+      return
+    }
+    setDate(val)
+  }
+
   async function handleSave() {
-    setSaving(true)
-    const result = await upsertJournal({
-      date,
-      mood,
-      rulesFollowed,
-      preSessionNotes: preSessionNotes || undefined,
-      postSessionNotes: postSessionNotes || undefined,
-      lessonsLearned: lessonsLearned || undefined,
-      marketConditions: marketConditions || undefined,
-      planForTomorrow: planForTomorrow || undefined,
-    })
-    setSaving(false)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    toast.error('Invalid date')
+    return
+  }
+  if (date > today) {
+    toast.error('Cannot create journal entry for a future date')
+    return
+  }
+  if (submittingRef.current) return
+
+  submittingRef.current = true
+  setSaving(true)
+
+  try {
+    const result = await upsertJournal(
+  {
+    id: defaultValues?.id, // ← dodati
+    date,
+    mood,
+    rulesFollowed,
+    preSessionNotes: preSessionNotes.trim() || undefined,
+    postSessionNotes: postSessionNotes.trim() || undefined,
+    lessonsLearned: lessonsLearned.trim() || undefined,
+    marketConditions: marketConditions.trim() || undefined,
+    planForTomorrow: planForTomorrow.trim() || undefined,
+  },
+  initialDate
+)
 
     if (result.error) {
       toast.error(result.error)
-      return
+      return // finally će resetovati state
     }
 
     toast.success('Journal entry saved')
-    router.push('/journal')
+    const savedDate = result.date ?? date
+    // Ukloniti router.refresh() — revalidatePath na serveru je dovoljan
+    router.push(`/journal`)
+  } catch {
+    toast.error('Failed to save journal entry.')
+  } finally {
+    setSaving(false)
+    submittingRef.current = false
   }
+}
 
   return (
     <div className="bg-card border border-border rounded-xl p-6 space-y-6">
+
+      {/* Date picker — uvijek vidljiv, i za create i za edit */}
+      <div className="space-y-1.5">
+        <Label htmlFor="journal-date">
+          Date
+          {isEdit && (
+            <span className="ml-2 text-xs text-muted-foreground font-normal">
+              (changing date will move this entry)
+            </span>
+          )}
+        </Label>
+        <Input
+          id="journal-date"
+          type="date"
+          value={date}
+          max={today}
+          onChange={e => handleDateChange(e.target.value)}
+          className="max-w-[200px]"
+        />
+        {date !== initialDate && (
+          <p className="text-xs text-amber-500">
+            ⚠ Entry will be saved under new date: {date}
+          </p>
+        )}
+      </div>
+
       {/* Mood */}
       <div className="space-y-3">
         <Label>How did today go?</Label>
@@ -107,9 +180,7 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
               onClick={() => setRulesFollowed(rulesFollowed === opt.value ? undefined : opt.value)}
               className={cn(
                 'flex-1 py-2 rounded-lg border text-sm font-medium transition-all',
-                rulesFollowed === opt.value
-                  ? opt.className
-                  : 'border-border hover:bg-muted/50'
+                rulesFollowed === opt.value ? opt.className : 'border-border hover:bg-muted/50'
               )}
             >
               {opt.label}
@@ -118,7 +189,6 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
         </div>
       </div>
 
-      {/* Pre-session */}
       <div className="space-y-2">
         <Label htmlFor="pre">Pre-Session Plan</Label>
         <Textarea
@@ -127,10 +197,10 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
           onChange={e => setPreSessionNotes(e.target.value)}
           placeholder="What's your plan for today? Key levels, setups to watch..."
           rows={3}
+          maxLength={3000}
         />
       </div>
 
-      {/* Post-session */}
       <div className="space-y-2">
         <Label htmlFor="post">Post-Session Notes</Label>
         <Textarea
@@ -139,10 +209,10 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
           onChange={e => setPostSessionNotes(e.target.value)}
           placeholder="What happened today? How did your trades go?"
           rows={4}
+          maxLength={3000}
         />
       </div>
 
-      {/* Lessons */}
       <div className="space-y-2">
         <Label htmlFor="lessons">Lessons Learned</Label>
         <Textarea
@@ -151,10 +221,10 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
           onChange={e => setLessonsLearned(e.target.value)}
           placeholder="What would you do differently? Key takeaways..."
           rows={3}
+          maxLength={2000}
         />
       </div>
 
-      {/* Market conditions */}
       <div className="space-y-2">
         <Label htmlFor="market">Market Conditions</Label>
         <Textarea
@@ -163,10 +233,10 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
           onChange={e => setMarketConditions(e.target.value)}
           placeholder="How was the market? Trending, ranging, news-driven..."
           rows={2}
+          maxLength={500}
         />
       </div>
 
-      {/* Plan for tomorrow */}
       <div className="space-y-2">
         <Label htmlFor="plan">Plan for Tomorrow</Label>
         <Textarea
@@ -175,15 +245,19 @@ export function JournalForm({ date, defaultValues }: JournalFormProps) {
           onChange={e => setPlanForTomorrow(e.target.value)}
           placeholder="What are you watching tomorrow? Key levels or setups..."
           rows={2}
+          maxLength={1000}
         />
       </div>
 
-      {/* Actions */}
       <div className="flex gap-3">
         <Button onClick={handleSave} disabled={saving} className="flex-1">
           {saving ? 'Saving...' : 'Save Entry'}
         </Button>
-        <Button variant="outline" onClick={() => router.push('/journal')} disabled={saving}>
+        <Button
+          variant="outline"
+          onClick={() => router.push('/journal')}
+          disabled={saving}
+        >
           Cancel
         </Button>
       </div>

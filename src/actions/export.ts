@@ -41,7 +41,23 @@ function sanitizeCell(value: unknown): string {
   // Ukloni newline karaktere koji mogu pokvariti CSV strukturu
   return str.replace(/[\r\n]/g, ' ')
 }
+export async function getTradesForExport(period: TimePeriod) {
+  const session = await getSession()
+  const safePeriod = VALID_PERIODS.includes(period) ? period : 'all'
+  
+  // ... dohvati trades ...
 
+  return trades.map(t => ({
+    Symbol: sanitizeForCSVExport(t.symbol),
+    Direction: sanitizeForCSVExport(t.direction),
+    // ... ostala polja ...
+    Notes: sanitizeForCSVExport(t.notes),
+    // Numerička polja — konvertuj u broj, ne string
+    'Entry Price': Number(t.entryPrice),
+    'Exit Price': t.exitPrice ? Number(t.exitPrice) : '',
+    'Net P&L': t.netPnl ? Number(t.netPnl) : '',
+  }))
+}
 export async function getTradesForExport(period: TimePeriod = 'month') {
   const session = await getSession()
   const userId = session.user.id

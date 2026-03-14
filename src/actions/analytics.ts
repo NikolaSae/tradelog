@@ -7,30 +7,24 @@ import { db } from '@/db'
 import { trades } from '@/db/schema'
 import { auth } from '@/lib/auth'
 import type { TimePeriod } from '@/types/trade'
+import { toLocalDateStr, getFromDate, validatePeriod } from '@/lib/utils'
 
 async function getSession() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session) throw new Error('Unauthorized')
   return session
 }
+const VALID_PERIODS = ['day', 'week', 'month', 'quarter', 'year', 'all'] as const
 
-function getFromDate(period: TimePeriod): Date | null {
-  const now = new Date()
-  const from = new Date()
-  if (period === 'all') return null
-  if (period === 'day') from.setHours(0, 0, 0, 0)
-  else if (period === 'week') from.setDate(now.getDate() - 7)
-  else if (period === 'month') from.setMonth(now.getMonth() - 1)
-  else if (period === 'quarter') from.setMonth(now.getMonth() - 3)
-  else if (period === 'year') from.setFullYear(now.getFullYear() - 1)
-  return from
-}
+
+
 
 // ── Performance Analytics ────────────────────────────────────────────────────
 
 export async function getPerformanceAnalytics(period: TimePeriod = 'month') {
   const session = await getSession()
   const userId = session.user.id
+  const validPeriod = validatePeriod(period)
   const from = getFromDate(period)
 
   const conditions = [eq(trades.userId, userId), eq(trades.status, 'CLOSED')]
@@ -105,13 +99,13 @@ export async function getPerformanceAnalytics(period: TimePeriod = 'month') {
   )
   let cumPnl = 0
   const cumulativePnl = sorted.map((t) => {
-    cumPnl += Number(t.netPnl ?? 0)
-    return {
-      date: t.openedAt.toISOString().split('T')[0],
-      pnl: Math.round(cumPnl * 100) / 100,
-      tradePnl: Math.round(Number(t.netPnl ?? 0) * 100) / 100,
-    }
-  })
+  cumPnl += Number(t.netPnl ?? 0)
+  return {
+    date: toLocalDateStr(new Date(t.openedAt)),
+    pnl: Math.round(cumPnl * 100) / 100,
+    tradePnl: Math.round(Number(t.netPnl ?? 0) * 100) / 100,
+  }
+})
 
   // Long vs Short
   const longs = allTrades.filter((t) => t.direction === 'LONG')

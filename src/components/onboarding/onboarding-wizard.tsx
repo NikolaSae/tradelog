@@ -1,8 +1,7 @@
 //src/components/onboarding/onboarding-wizard.tsx
-
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { completeOnboarding, skipOnboarding } from '@/actions/onboarding'
@@ -22,18 +21,27 @@ const TIMEZONES = [
   'UTC', 'Europe/London', 'Europe/Belgrade', 'Europe/Berlin',
   'Europe/Paris', 'America/New_York', 'America/Los_Angeles',
   'Asia/Tokyo', 'Asia/Dubai',
-]
+] as const
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CHF', 'JPY', 'AUD']
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'CHF', 'JPY', 'AUD'] as const
 
-const MARKETS = ['Forex', 'Gold/Silver', 'Indices', 'Crypto', 'Commodities', 'Stocks']
+const MARKETS = ['Forex', 'Gold/Silver', 'Indices', 'Crypto', 'Commodities', 'Stocks'] as const
 
 const TRADING_STYLES = [
   { value: 'SCALPER', label: 'Scalper', desc: 'Seconds to minutes per trade', icon: '⚡' },
   { value: 'DAY_TRADER', label: 'Day Trader', desc: 'Open and close within the day', icon: '📊' },
   { value: 'SWING_TRADER', label: 'Swing Trader', desc: 'Days to weeks', icon: '🌊' },
   { value: 'POSITION_TRADER', label: 'Position Trader', desc: 'Weeks to months', icon: '🏔️' },
-]
+] as const
+
+type TimezoneValue = typeof TIMEZONES[number]
+type CurrencyValue = typeof CURRENCIES[number]
+type TradingStyleValue = typeof TRADING_STYLES[number]['value']
+
+const VALID_TIMEZONES = TIMEZONES as readonly string[]
+const VALID_CURRENCIES = CURRENCIES as readonly string[]
+const VALID_STYLES = TRADING_STYLES.map(s => s.value) as string[]
+const VALID_MARKETS = MARKETS as readonly string[]
 
 interface OnboardingWizardProps {
   userName?: string
@@ -44,6 +52,7 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
+  const submittingRef = useRef(false)
 
   const [values, setValues] = useState<Partial<OnboardingValues>>({
     name: userName ?? '',
@@ -61,32 +70,52 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
   }
 
   function toggleMarket(market: string) {
+    // Samo dozvoljeni marketi
+    if (!VALID_MARKETS.includes(market)) return
     const current = values.primaryMarkets ?? []
     if (current.includes(market)) {
       update('primaryMarkets', current.filter(m => m !== market))
     } else {
+      // Max 6 marketa
+      if (current.length >= 6) return
       update('primaryMarkets', [...current, market])
     }
   }
 
   async function handleFinish() {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSaving(true)
-    const result = await completeOnboarding(values as OnboardingValues)
-    if (result.error) {
-      toast.error(result.error)
+
+    try {
+      const result = await completeOnboarding(values as OnboardingValues)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      router.push('/dashboard')
+    } catch {
+      toast.error('Something went wrong. Please try again.')
+    } finally {
       setSaving(false)
-      return
+      submittingRef.current = false
     }
-    router.push('/dashboard')
   }
 
   async function handleSkip() {
-    await skipOnboarding()
-    router.push('/dashboard')
+    try {
+      await skipOnboarding()
+      router.push('/dashboard')
+    } catch {
+      router.push('/dashboard')
+    }
   }
 
   function canProceed() {
-    if (step === 2) return !!values.brokerName && (values.initialBalance ?? 0) > 0
+    if (step === 2) {
+      const bal = values.initialBalance ?? 0
+      return !!values.brokerName?.trim() && bal > 0 && bal <= 100_000_000
+    }
     return true
   }
 
@@ -123,8 +152,9 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
               <Label>Your Name</Label>
               <Input
                 value={values.name ?? ''}
-                onChange={e => update('name', e.target.value)}
+                onChange={e => update('name', e.target.value.slice(0, 100))}
                 placeholder="How should we call you?"
+                maxLength={100}
               />
             </div>
 
@@ -133,7 +163,11 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
                 <Label>Timezone</Label>
                 <select
                   value={values.timezone}
-                  onChange={e => update('timezone', e.target.value)}
+                  onChange={e => {
+                    if (VALID_TIMEZONES.includes(e.target.value)) {
+                      update('timezone', e.target.value as TimezoneValue)
+                    }
+                  }}
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
                 >
                   {TIMEZONES.map(tz => (
@@ -146,7 +180,11 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
                 <Label>Currency</Label>
                 <select
                   value={values.currency}
-                  onChange={e => update('currency', e.target.value)}
+                  onChange={e => {
+                    if (VALID_CURRENCIES.includes(e.target.value)) {
+                      update('currency', e.target.value as CurrencyValue)
+                    }
+                  }}
                   className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
                 >
                   {CURRENCIES.map(c => (
@@ -177,8 +215,9 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
               <Label>Broker Name *</Label>
               <Input
                 value={values.brokerName ?? ''}
-                onChange={e => update('brokerName', e.target.value)}
+                onChange={e => update('brokerName', e.target.value.slice(0, 100))}
                 placeholder="e.g. IC Markets, Pepperstone"
+                maxLength={100}
               />
             </div>
 
@@ -186,8 +225,9 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
               <Label>Account Name</Label>
               <Input
                 value={values.accountName ?? ''}
-                onChange={e => update('accountName', e.target.value)}
+                onChange={e => update('accountName', e.target.value.slice(0, 100))}
                 placeholder="e.g. Live Account, Prop Firm"
+                maxLength={100}
               />
             </div>
 
@@ -200,8 +240,14 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
                 <Input
                   type="number"
                   className="pl-7"
+                  min={1}
+                  max={100_000_000}
                   value={values.initialBalance ?? ''}
-                  onChange={e => update('initialBalance', Number(e.target.value))}
+                  onChange={e => {
+                    const val = Number(e.target.value)
+                    if (isNaN(val) || val < 0 || val > 100_000_000) return
+                    update('initialBalance', val)
+                  }}
                   placeholder="10000"
                 />
               </div>
@@ -230,7 +276,11 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
             {TRADING_STYLES.map(style => (
               <button
                 key={style.value}
-                onClick={() => update('tradingStyle', style.value)}
+                onClick={() => {
+                  if (VALID_STYLES.includes(style.value)) {
+                    update('tradingStyle', style.value as TradingStyleValue)
+                  }
+                }}
                 className={cn(
                   'w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all',
                   values.tradingStyle === style.value
@@ -282,9 +332,7 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
               <Check className="h-8 w-8 text-emerald-500" />
             </div>
             <h2 className="text-2xl font-bold">You're all set! 🎉</h2>
-            <p className="text-muted-foreground">
-              Here's what you can do next:
-            </p>
+            <p className="text-muted-foreground">Here's what you can do next:</p>
           </div>
 
           <div className="space-y-3">
@@ -345,12 +393,8 @@ export function OnboardingWizard({ userName, userEmail }: OnboardingWizardProps)
 
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">{step} / {TOTAL_STEPS}</span>
-
           {step < TOTAL_STEPS ? (
-            <Button
-              onClick={() => setStep(s => s + 1)}
-              disabled={!canProceed()}
-            >
+            <Button onClick={() => setStep(s => s + 1)} disabled={!canProceed()}>
               Continue
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>

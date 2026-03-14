@@ -64,9 +64,10 @@ export function PnlChart({ data }: PnlChartProps) {
           tickLine={false}
           axisLine={false}
           tickFormatter={(v) => {
-            const d = new Date(v)
-            return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
-          }}
+          const [year, month, day] = (v as string).split('-').map(Number)
+          const d = new Date(year, month - 1, day)
+          return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+        }}
         />
         <YAxis
           tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}

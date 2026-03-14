@@ -1,9 +1,8 @@
 //src/components/reports/export-panel.tsx
 
-
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Download, FileSpreadsheet, FileText } from 'lucide-react'
 import { toast } from 'sonner'
 import { getTradesForExport } from '@/actions/export'
@@ -17,14 +16,20 @@ const PERIODS: { value: TimePeriod; label: string }[] = [
   { value: 'quarter', label: 'Last 3 months' },
   { value: 'year', label: 'Last year' },
   { value: 'all', label: 'All time' },
-]
+] as const
+
+const VALID_PERIODS = PERIODS.map(p => p.value) as string[]
 
 export function ExportPanel() {
   const [period, setPeriod] = useState<TimePeriod>('month')
   const [loading, setLoading] = useState<'csv' | 'excel' | null>(null)
+  const exportingRef = useRef(false)
 
   async function handleExportCSV() {
+    if (exportingRef.current) return
+    exportingRef.current = true
     setLoading('csv')
+
     try {
       const data = await getTradesForExport(period)
       if (data.length === 0) {
@@ -32,20 +37,23 @@ export function ExportPanel() {
         return
       }
 
-      // Dinamički importuj papaparse samo na klijentu
       const Papa = (await import('papaparse')).default
       const csv = Papa.unparse(data)
       downloadFile(csv, `tradelog-${period}-${getDateStr()}.csv`, 'text/csv')
       toast.success(`Exported ${data.length} trades`)
     } catch {
-      toast.error('Export failed')
+      toast.error('Export failed. Please try again.')
     } finally {
       setLoading(null)
+      exportingRef.current = false
     }
   }
 
   async function handleExportExcel() {
+    if (exportingRef.current) return
+    exportingRef.current = true
     setLoading('excel')
+
     try {
       const data = await getTradesForExport(period)
       if (data.length === 0) {
@@ -58,31 +66,33 @@ export function ExportPanel() {
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Trades')
 
-      // Auto column widths
-      const cols = Object.keys(data[0]).map(key => ({
-        wch: Math.max(key.length, 12),
-      }))
+      const cols = Object.keys(data[0]).map(key => ({ wch: Math.max(key.length, 12) }))
       ws['!cols'] = cols
 
       XLSX.writeFile(wb, `tradelog-${period}-${getDateStr()}.xlsx`)
       toast.success(`Exported ${data.length} trades`)
     } catch {
-      toast.error('Export failed')
+      toast.error('Export failed. Please try again.')
     } finally {
       setLoading(null)
+      exportingRef.current = false
     }
   }
 
   return (
     <div className="space-y-6">
-      {/* Period selector */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-3">
         <Label>Select Period</Label>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {PERIODS.map(p => (
             <button
               key={p.value}
-              onClick={() => setPeriod(p.value)}
+              onClick={() => {
+                // Validacija na klijentu
+                if (VALID_PERIODS.includes(p.value)) {
+                  setPeriod(p.value)
+                }
+              }}
               className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${
                 period === p.value
                   ? 'border-primary bg-primary/10 text-primary'
@@ -95,7 +105,6 @@ export function ExportPanel() {
         </div>
       </div>
 
-      {/* Export buttons */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-3">
         <h3 className="font-semibold">Export Format</h3>
 
@@ -138,7 +147,6 @@ export function ExportPanel() {
         </div>
       </div>
 
-      {/* Info */}
       <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
         Exports include: symbol, direction, prices, lot size, commission, swap, P&L, R-multiple, dates, session, emotion, and notes.
       </div>

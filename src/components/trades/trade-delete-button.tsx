@@ -1,13 +1,13 @@
 //src/components/trades/trade-delete-button.tsx
-
 'use client'
 
-import { useState } from 'react'
+import { useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteTrade } from '@/actions/trades'
 import { Button } from '@/components/ui/button'
+import { useState } from 'react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -22,15 +22,26 @@ interface TradeDeleteButtonProps {
 export function TradeDeleteButton({ tradeId, symbol }: TradeDeleteButtonProps) {
   const router = useRouter()
   const [deleting, setDeleting] = useState(false)
+  const deletingRef = useRef(false)
 
   async function handleDelete() {
+    if (deletingRef.current) return
+    deletingRef.current = true
     setDeleting(true)
-    const result = await deleteTrade(tradeId)
-    if (result.success) {
-      toast.success('Trade deleted')
-      router.push('/trades')
-    } else {
-      toast.error('Failed to delete trade')
+
+    try {
+      const result = await deleteTrade(tradeId)
+      if (result.success) {
+        toast.success('Trade deleted')
+        router.push('/trades')
+      } else {
+        toast.error('Failed to delete trade.')
+      }
+    } catch {
+      toast.error('Failed to delete trade.')
+    } finally {
+      // Reset samo ako nismo redirectali
+      deletingRef.current = false
       setDeleting(false)
     }
   }
@@ -38,7 +49,7 @@ export function TradeDeleteButton({ tradeId, symbol }: TradeDeleteButtonProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" className="text-destructive hover:text-destructive">
+        <Button variant="outline" className="text-destructive hover:text-destructive" disabled={deleting}>
           <Trash2 className="h-4 w-4 mr-2" />
           Delete
         </Button>
@@ -51,7 +62,7 @@ export function TradeDeleteButton({ tradeId, symbol }: TradeDeleteButtonProps) {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleDelete}
             disabled={deleting}

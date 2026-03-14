@@ -52,3 +52,13 @@ export function sanitizeDirection(val: unknown): 'LONG' | 'SHORT' | null {
   if (str === 'sell' || str === 'short') return 'SHORT'
   return null
 }
+
+export function sanitizeForCSVExport(value: string | null | undefined): string {
+  if (!value) return ''
+  const str = String(value).trim()
+  // Prefiksiraj opasne karaktere sa apostrofom
+  if (/^[=+\-@|]/.test(str)) {
+    return `'${str}`
+  }
+  return str
+}

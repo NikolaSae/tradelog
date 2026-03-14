@@ -1,8 +1,7 @@
 //src/components/trades/trade-form.tsx
-
-
 'use client'
 
+import { useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -14,58 +13,74 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import type { Trade } from '@/types/trade'
+
+const VALID_DIRECTIONS = ['LONG', 'SHORT'] as const
+const VALID_STATUSES = ['CLOSED', 'OPEN', 'BREAKEVEN', 'PARTIALLY_CLOSED'] as const
+const VALID_SESSIONS = ['ASIAN', 'LONDON', 'NEW_YORK', 'PACIFIC', 'OVERLAP_LONDON_NY'] as const
+const VALID_EMOTIONS = ['CONFIDENT', 'FEARFUL', 'GREEDY', 'NEUTRAL', 'REVENGE', 'FOMO', 'PATIENT'] as const
+
+type DirectionValue = typeof VALID_DIRECTIONS[number]
+type StatusValue = typeof VALID_STATUSES[number]
+type SessionValue = typeof VALID_SESSIONS[number]
+type EmotionValue = typeof VALID_EMOTIONS[number]
 
 interface TradeFormProps {
-  tradeId?: string          // ako postoji → edit mode
+  tradeId?: string
   defaultValues?: Partial<TradeFormValues>
 }
 
 export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
   const router = useRouter()
   const isEdit = !!tradeId
+  const submittingRef = useRef(false)
 
   const {
-  register,
-  handleSubmit,
-  setValue,
-  watch,
-  formState: { errors, isSubmitting },
-} = useForm<TradeFormValues>({
-  resolver: zodResolver(tradeFormSchema),
-  defaultValues: defaultValues ?? {
-    direction: 'LONG',
-    status: 'CLOSED',
-    commission: 0,
-    swap: 0,
-    openedAt: new Date().toISOString().slice(0, 16),
-  },
-})
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<TradeFormValues>({
+    resolver: zodResolver(tradeFormSchema),
+    defaultValues: defaultValues ?? {
+      direction: 'LONG',
+      status: 'CLOSED',
+      commission: 0,
+      swap: 0,
+      openedAt: new Date().toISOString().slice(0, 16),
+    },
+  })
 
   const status = watch('status')
 
   async function onSubmit(values: TradeFormValues) {
-  const result = isEdit
-    ? await updateTrade(tradeId!, values)
-    : await createTrade(values)
+    if (submittingRef.current) return
+    submittingRef.current = true
 
-  if (result.error) {
-    toast.error(result.error)
-    return
+    try {
+      const result = isEdit
+        ? await updateTrade(tradeId!, values)
+        : await createTrade(values)
+
+      if (result.error) {
+        toast.error('Failed to save trade. Please check your inputs.')
+        return
+      }
+
+      toast.success(isEdit ? 'Trade updated' : 'Trade added')
+      router.push(isEdit ? `/trades/${tradeId}` : '/trades')
+    } catch {
+      toast.error('Something went wrong. Please try again.')
+    } finally {
+      submittingRef.current = false
+    }
   }
 
-  toast.success(isEdit ? 'Trade updated' : 'Trade added')
-  router.push(isEdit ? `/trades/${tradeId}` : '/trades')
-}
-
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
       {/* Symbol & Direction */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -74,6 +89,7 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
             id="symbol"
             placeholder="EURUSD"
             className="uppercase"
+            maxLength={20}
             {...register('symbol')}
           />
           {errors.symbol && (
@@ -85,7 +101,11 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
           <Label>Direction *</Label>
           <Select
             defaultValue={watch('direction')}
-            onValueChange={(v) => setValue('direction', v as 'LONG' | 'SHORT')}
+            onValueChange={v => {
+              if (VALID_DIRECTIONS.includes(v as DirectionValue)) {
+                setValue('direction', v as DirectionValue)
+              }
+            }}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select direction" />
@@ -108,11 +128,13 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
           <Label>Status *</Label>
           <Select
             defaultValue={watch('status')}
-            onValueChange={(v) => setValue('status', v as any)}
+            onValueChange={v => {
+              if (VALID_STATUSES.includes(v as StatusValue)) {
+                setValue('status', v as StatusValue)
+              }
+            }}
           >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="CLOSED">Closed</SelectItem>
               <SelectItem value="OPEN">Open</SelectItem>
@@ -125,8 +147,12 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
         <div className="space-y-2">
           <Label>Session</Label>
           <Select
-            onValueChange={(v) => setValue('session', v as any)}
             defaultValue={watch('session')}
+            onValueChange={v => {
+              if (VALID_SESSIONS.includes(v as SessionValue)) {
+                setValue('session', v as SessionValue)
+              }
+            }}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select session" />
@@ -150,6 +176,7 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
             id="entryPrice"
             type="number"
             step="any"
+            min={0}
             placeholder="1.08500"
             {...register('entryPrice')}
           />
@@ -164,6 +191,7 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
             id="exitPrice"
             type="number"
             step="any"
+            min={0}
             placeholder="1.09000"
             disabled={status === 'OPEN'}
             {...register('exitPrice')}
@@ -179,6 +207,7 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
             id="stopLoss"
             type="number"
             step="any"
+            min={0}
             placeholder="1.08000"
             {...register('stopLoss')}
           />
@@ -190,13 +219,14 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
             id="takeProfit"
             type="number"
             step="any"
+            min={0}
             placeholder="1.09500"
             {...register('takeProfit')}
           />
         </div>
       </div>
 
-      {/* Lot size & Commission */}
+      {/* Lot size & Commission & Swap */}
       <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
           <Label htmlFor="lotSize">Lot Size *</Label>
@@ -204,6 +234,8 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
             id="lotSize"
             type="number"
             step="any"
+            min={0}
+            max={10000}
             placeholder="0.10"
             {...register('lotSize')}
           />
@@ -264,8 +296,12 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
       <div className="space-y-2">
         <Label>Emotion Tag</Label>
         <Select
-          onValueChange={(v) => setValue('emotionTag', v as any)}
           defaultValue={watch('emotionTag')}
+          onValueChange={v => {
+            if (VALID_EMOTIONS.includes(v as EmotionValue)) {
+              setValue('emotionTag', v as EmotionValue)
+            }
+          }}
         >
           <SelectTrigger>
             <SelectValue placeholder="How did you feel?" />
@@ -289,6 +325,7 @@ export function TradeForm({ tradeId, defaultValues }: TradeFormProps) {
           id="notes"
           placeholder="Trade reasoning, observations..."
           rows={3}
+          maxLength={2000}
           {...register('notes')}
         />
       </div>

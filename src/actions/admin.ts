@@ -110,12 +110,7 @@ export async function getAdminStats() {
 
 // ── Users List ────────────────────────────────────────────────────────────────
 
-export async function getAdminUsers({
-  page = 1,
-  limit = 25,
-  plan,
-  search,
-}: {
+export async function getAdminUsers(input: {
   page?: number
   limit?: number
   plan?: string
@@ -123,6 +118,11 @@ export async function getAdminUsers({
 } = {}) {
   await requireAdminSession()
 
+  // Validacija svih parametara
+  const parsed = getUsersSchema.safeParse(input)
+  if (!parsed.success) throw new Error('Invalid input')
+
+  const { page, limit, plan, search } = parsed.data
   const offset = (page - 1) * limit
   const conditions = []
 
@@ -164,9 +164,12 @@ export async function getAdminUsers({
 export async function getAdminBilling(limit = 20) {
   await requireAdminSession()
 
+  // Ograniči limit
+  const safeLimit = Math.min(Math.max(1, Math.floor(limit)), 100)
+
   const recent = await db.query.billingHistory.findMany({
     orderBy: [desc(billingHistory.createdAt)],
-    limit,
+    limit: safeLimit,
   })
 
   const userIds = [...new Set(recent.map(b => b.userId))]
@@ -184,20 +187,36 @@ export async function getAdminBilling(limit = 20) {
 
 // ── Change User Plan ──────────────────────────────────────────────────────────
 
+const setUserPlanSchema = z.object({
+  userId: z.string().min(1).max(128),
+  plan: z.enum(['FREE', 'PRO', 'ELITE']),
+})
+
+const getUsersSchema = z.object({
+  page: z.number().int().positive().max(10_000).default(1),
+  limit: z.number().int().positive().max(100).default(25), // max 100 po stranici
+  plan: z.enum(['FREE', 'PRO', 'ELITE', 'all']).optional(),
+  search: z.string().max(100).optional(), // max dužina search stringa
+})
+
 export async function adminSetUserPlan(userId: string, plan: 'FREE' | 'PRO' | 'ELITE') {
   const session = await requireAdminSession()
 
+  // Runtime validacija — TypeScript tipovi ne postoje u runtime
+  const parsed = setUserPlanSchema.safeParse({ userId, plan })
+  if (!parsed.success) throw new Error('Invalid input')
+
   await db.update(users)
-    .set({ plan, updatedAt: new Date() })
-    .where(eq(users.id, userId))
+    .set({ plan: parsed.data.plan, updatedAt: new Date() })
+    .where(eq(users.id, parsed.data.userId))
 
   await db.insert(auditLogs).values({
     id: nanoid(),
     userId: session.user.id,
     action: 'ADMIN_SET_USER_PLAN',
     entity: 'user',
-    entityId: userId,
-    metadata: { plan, changedBy: session.user.email },
+    entityId: parsed.data.userId,
+    metadata: { plan: parsed.data.plan, changedBy: session.user.email },
     createdAt: new Date(),
   })
 

@@ -4,7 +4,7 @@
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { nanoid } from 'nanoid'
-import { eq, and, desc, gte, sql } from 'drizzle-orm'
+import { eq, and, desc, gte } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '@/db'
 import { alerts, trades } from '@/db/schema'
@@ -18,7 +18,8 @@ const alertSchema = z.object({
     'OVERTRADING',
     'GOAL_ACHIEVED',
   ]),
-  threshold: z.coerce.number().positive(),
+  // Gornja granica spriječava ekstremne vrijednosti
+  threshold: z.coerce.number().positive().max(1_000_000),
 })
 
 export type AlertFormValues = z.infer<typeof alertSchema>
@@ -63,9 +64,10 @@ export async function toggleAlert(id: string) {
   })
   if (!alert) return { error: 'Not found' }
 
+  // FIX: userId u WHERE — ne oslanjamo se samo na prethodnu provjeru
   await db.update(alerts)
     .set({ isActive: !alert.isActive })
-    .where(eq(alerts.id, id))
+    .where(and(eq(alerts.id, id), eq(alerts.userId, session.user.id)))
 
   revalidatePath('/alerts')
   return { success: true }
@@ -73,16 +75,31 @@ export async function toggleAlert(id: string) {
 
 export async function deleteAlert(id: string) {
   const session = await getSession()
+
+  // FIX: provjeri ownership prije brisanja
+  const existing = await db.query.alerts.findFirst({
+    where: and(eq(alerts.id, id), eq(alerts.userId, session.user.id)),
+  })
+  if (!existing) return { error: 'Not found' }
+
   await db.delete(alerts).where(
     and(eq(alerts.id, id), eq(alerts.userId, session.user.id))
   )
+
   revalidatePath('/alerts')
   return { success: true }
 }
 
-// ── Alert Check Engine ────────────────────────────────────────────────────────
+// FIX: checkAlertsForUser — interno, poziva se samo sa session.user.id
+// Ne prima userId kao vanjski argument — caller ne može proslijediti tuđi userId
+export async function checkAlertsForCurrentUser() {
+  const session = await getSession()
+  const userId = session.user.id
+  return _runAlertCheck(userId)
+}
 
-export async function checkAlertsForUser(userId: string) {
+// Interna funkcija — nije exportovana, ne može biti pozvana direktno
+async function _runAlertCheck(userId: string) {
   const userAlerts = await db.query.alerts.findMany({
     where: and(
       eq(alerts.userId, userId),
@@ -95,7 +112,6 @@ export async function checkAlertsForUser(userId: string) {
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
 
-  // FIX: DAILY_LOSS_LIMIT i OVERTRADING — SQL filter samo za danas, ne full scan
   const todayTrades = await db.query.trades.findMany({
     where: and(
       eq(trades.userId, userId),
@@ -104,15 +120,13 @@ export async function checkAlertsForUser(userId: string) {
     ),
   })
 
-  // FIX: LOSING_STREAK i DRAWDOWN_LIMIT — potrebni su historijski tradovi
-  // ali limitiramo na razumnu količinu, ne cijelu tabelu
   const recentTrades = await db.query.trades.findMany({
     where: and(
       eq(trades.userId, userId),
       eq(trades.status, 'CLOSED'),
     ),
     orderBy: [desc(trades.openedAt)],
-    limit: 200, // dovoljno za streak i drawdown kalkulaciju
+    limit: 200,
   })
 
   const triggered: { type: string; message: string }[] = []
@@ -121,9 +135,7 @@ export async function checkAlertsForUser(userId: string) {
     const threshold = Number(alert.threshold)
 
     switch (alert.type) {
-
       case 'DAILY_LOSS_LIMIT': {
-        // FIX: koristi todayTrades (SQL filtered), ne recentTrades
         const dailyPnl = todayTrades.reduce((s, t) => s + Number(t.netPnl ?? 0), 0)
         if (dailyPnl <= -threshold) {
           triggered.push({
@@ -132,13 +144,12 @@ export async function checkAlertsForUser(userId: string) {
           })
           await db.update(alerts)
             .set({ lastFired: new Date() })
-            .where(eq(alerts.id, alert.id))
+            .where(and(eq(alerts.id, alert.id), eq(alerts.userId, userId)))
         }
         break
       }
 
       case 'OVERTRADING': {
-        // FIX: koristi todayTrades (SQL filtered)
         if (todayTrades.length >= threshold) {
           triggered.push({
             type: 'OVERTRADING',
@@ -146,19 +157,17 @@ export async function checkAlertsForUser(userId: string) {
           })
           await db.update(alerts)
             .set({ lastFired: new Date() })
-            .where(eq(alerts.id, alert.id))
+            .where(and(eq(alerts.id, alert.id), eq(alerts.userId, userId)))
         }
         break
       }
 
       case 'LOSING_STREAK': {
-        // FIX: koristi recentTrades (limit 200), sortirani desc već iz DB-a
         let streak = 0
         for (const t of recentTrades) {
           if (Number(t.netPnl ?? 0) < 0) streak++
           else break
         }
-
         if (streak >= threshold) {
           triggered.push({
             type: 'LOSING_STREAK',
@@ -166,14 +175,13 @@ export async function checkAlertsForUser(userId: string) {
           })
           await db.update(alerts)
             .set({ lastFired: new Date() })
-            .where(eq(alerts.id, alert.id))
+            .where(and(eq(alerts.id, alert.id), eq(alerts.userId, userId)))
         }
         break
       }
 
       case 'DRAWDOWN_LIMIT': {
-        // FIX: koristi recentTrades (limit 200), sortirani desc — reversujemo za kalkulaciju
-        const sorted = [...recentTrades].reverse() // asc po datumu
+        const sorted = [...recentTrades].reverse()
         let peak = 0
         let cumPnl = 0
         let maxDD = 0
@@ -183,7 +191,6 @@ export async function checkAlertsForUser(userId: string) {
           const dd = peak - cumPnl
           if (dd > maxDD) maxDD = dd
         }
-
         if (maxDD >= threshold) {
           triggered.push({
             type: 'DRAWDOWN_LIMIT',
@@ -191,7 +198,7 @@ export async function checkAlertsForUser(userId: string) {
           })
           await db.update(alerts)
             .set({ lastFired: new Date() })
-            .where(eq(alerts.id, alert.id))
+            .where(and(eq(alerts.id, alert.id), eq(alerts.userId, userId)))
         }
         break
       }

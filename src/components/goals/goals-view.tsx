@@ -1,8 +1,8 @@
 //src/components/goals/goals-view.tsx
-
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Target } from 'lucide-react'
 import { toast } from 'sonner'
 import { createGoal, deleteGoal } from '@/actions/goals'
@@ -34,7 +34,7 @@ const GOAL_TYPES = [
   { value: 'MAX_DAILY_LOSS', label: 'Max Daily Loss ($)' },
   { value: 'MIN_RRR', label: 'Min Risk/Reward' },
   { value: 'MAX_TRADES_PER_DAY', label: 'Max Trades/Day' },
-]
+] as const
 
 const PERIODS = [
   { value: 'DAILY', label: 'Daily' },
@@ -42,14 +42,20 @@ const PERIODS = [
   { value: 'MONTHLY', label: 'Monthly' },
   { value: 'QUARTERLY', label: 'Quarterly' },
   { value: 'YEARLY', label: 'Yearly' },
-]
+] as const
+
+type GoalTypeValue = typeof GOAL_TYPES[number]['value']
+type PeriodValue = typeof PERIODS[number]['value']
+
+const VALID_TYPES = GOAL_TYPES.map(t => t.value) as string[]
+const VALID_PERIODS = PERIODS.map(p => p.value) as string[]
 
 function getCurrentValue(type: string, stats: any): number {
   switch (type) {
-    case 'NET_PNL': return stats.totalNetPnl
-    case 'WIN_RATE': return stats.winRate
-    case 'TRADES': return stats.totalTrades
-    case 'PROFIT_FACTOR': return stats.profitFactor
+    case 'NET_PNL': return stats.totalNetPnl ?? 0
+    case 'WIN_RATE': return stats.winRate ?? 0
+    case 'TRADES': return stats.totalTrades ?? 0
+    case 'PROFIT_FACTOR': return stats.profitFactor ?? 0
     default: return 0
   }
 }
@@ -62,9 +68,11 @@ function formatGoalValue(type: string, value: number): string {
 }
 
 export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
+  const router = useRouter()
   const [goals, setGoals] = useState(initialGoals)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const submittingRef = useRef(false)
   const [form, setForm] = useState<GoalFormValues>({
     title: '',
     type: 'NET_PNL',
@@ -77,24 +85,48 @@ export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
   }
 
   async function handleCreate() {
-    setSaving(true)
-    const result = await createGoal(form)
-    if (result.error) {
-      toast.error(result.error)
-      setSaving(false)
+    // Client-side validacija
+    const trimmedTitle = form.title.trim()
+    if (!trimmedTitle) { toast.error('Title is required'); return }
+    if (trimmedTitle.length > 100) { toast.error('Title is too long'); return }
+    if (!VALID_TYPES.includes(form.type)) { toast.error('Invalid goal type'); return }
+    if (!VALID_PERIODS.includes(form.period)) { toast.error('Invalid period'); return }
+    if (!form.targetValue || form.targetValue <= 0 || form.targetValue > 10_000_000) {
+      toast.error('Target must be a positive number')
       return
     }
-    toast.success('Goal created')
-    setShowForm(false)
-    setForm({ title: '', type: 'NET_PNL', targetValue: 0, period: 'MONTHLY' })
-    setSaving(false)
-    window.location.reload()
+    if (!Number.isFinite(form.targetValue)) { toast.error('Invalid target value'); return }
+    if (submittingRef.current) return
+
+    submittingRef.current = true
+    setSaving(true)
+
+    try {
+      const result = await createGoal({ ...form, title: trimmedTitle })
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      toast.success('Goal created')
+      setShowForm(false)
+      setForm({ title: '', type: 'NET_PNL', targetValue: 0, period: 'MONTHLY' })
+      router.refresh() // umjesto window.location.reload()
+    } catch {
+      toast.error('Failed to create goal. Please try again.')
+    } finally {
+      setSaving(false)
+      submittingRef.current = false
+    }
   }
 
   async function handleDelete(id: string) {
-    await deleteGoal(id)
-    setGoals(g => g.filter((x: any) => x.id !== id))
-    toast.success('Goal deleted')
+    try {
+      await deleteGoal(id)
+      setGoals(g => g.filter((x: any) => x.id !== id))
+      toast.success('Goal deleted')
+    } catch {
+      toast.error('Failed to delete goal.')
+    }
   }
 
   return (
@@ -114,8 +146,9 @@ export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
             <Label>Title</Label>
             <Input
               value={form.title}
-              onChange={e => updateForm('title', e.target.value)}
+              onChange={e => updateForm('title', e.target.value.slice(0, 100))}
               placeholder="e.g. Make $2,000 this month"
+              maxLength={100}
             />
           </div>
 
@@ -124,7 +157,11 @@ export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
               <Label>Type</Label>
               <select
                 value={form.type}
-                onChange={e => updateForm('type', e.target.value)}
+                onChange={e => {
+                  if (VALID_TYPES.includes(e.target.value)) {
+                    updateForm('type', e.target.value as GoalTypeValue)
+                  }
+                }}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               >
                 {GOAL_TYPES.map(t => (
@@ -136,7 +173,11 @@ export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
               <Label>Period</Label>
               <select
                 value={form.period}
-                onChange={e => updateForm('period', e.target.value)}
+                onChange={e => {
+                  if (VALID_PERIODS.includes(e.target.value)) {
+                    updateForm('period', e.target.value as PeriodValue)
+                  }
+                }}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               >
                 {PERIODS.map(p => (
@@ -150,8 +191,15 @@ export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
             <Label>Target Value</Label>
             <Input
               type="number"
+              min={0.01}
+              max={10_000_000}
+              step={0.01}
               value={form.targetValue || ''}
-              onChange={e => updateForm('targetValue', Number(e.target.value))}
+              onChange={e => {
+                const val = Number(e.target.value)
+                if (isNaN(val) || val < 0 || val > 10_000_000) return
+                updateForm('targetValue', val)
+              }}
               placeholder="e.g. 2000"
             />
           </div>
@@ -183,7 +231,6 @@ export function GoalsView({ goals: initialGoals, stats }: GoalsViewProps) {
               : 0
             const isComplete = progress >= 100
 
-            // Formatiraj datume perioda
             const startStr = new Date(goal.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
             const endStr = new Date(goal.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 

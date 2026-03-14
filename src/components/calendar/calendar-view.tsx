@@ -124,32 +124,41 @@ export function CalendarView() {
   }
 
   function handleSubmit() {
-    setFormError(null)
-    if (!form.title.trim()) { setFormError('Title is required.'); return }
-    if (!form.date.match(/^\d{4}-\d{2}-\d{2}$/)) { setFormError('Select a valid date.'); return }
-
-    startTransition(async () => {
-      try {
-        const event = await createCalendarEvent(form)
-        setEvents(prev => [...prev, event as CalendarEvent].sort((a, b) => a.date.localeCompare(b.date)))
-        setShowEventModal(false)
-        setForm(EMPTY_FORM)
-      } catch (e: unknown) {
-        setFormError(e instanceof Error ? e.message : 'Failed to create event.')
-      }
-    })
+  setFormError(null)
+  const trimmedTitle = form.title.trim()
+  if (!trimmedTitle) { setFormError('Title is required.'); return }
+  if (trimmedTitle.length > 100) { setFormError('Title is too long.'); return }
+  if (!form.date.match(/^\d{4}-\d{2}-\d{2}$/)) { setFormError('Select a valid date.'); return }
+  if (!['NEWS', 'EARNINGS', 'FOMC', 'CPI', 'NFP', 'OTHER'].includes(form.type)) {
+    setFormError('Invalid event type.'); return
   }
+  if (!['LOW', 'MEDIUM', 'HIGH'].includes(form.severity)) {
+    setFormError('Invalid severity.'); return
+  }
+
+  startTransition(async () => {
+    try {
+      const event = await createCalendarEvent({ ...form, title: trimmedTitle })
+      setEvents(prev => [...prev, event as CalendarEvent].sort((a, b) => a.date.localeCompare(b.date)))
+      setShowEventModal(false)
+      setForm(EMPTY_FORM)
+    } catch (e: unknown) {
+      setFormError(e instanceof Error ? e.message : 'Failed to create event.')
+    }
+  })
+}
 
   function handleDelete(id: string) {
-    startTransition(async () => {
-      try {
-        await deleteCalendarEvent({ id })
-        setEvents(prev => prev.filter(e => e.id !== id))
-      } catch {
-        // silent — could add toast here
-      }
-    })
-  }
+  startTransition(async () => {
+    try {
+      await deleteCalendarEvent({ id })
+      setEvents(prev => prev.filter(e => e.id !== id))
+    } catch {
+
+      console.error('Failed to delete event:', id)
+    }
+  })
+}
 
   function prev() {
     if (month === 1) { setYear(y => y - 1); setMonth(12) }
@@ -193,14 +202,17 @@ export function CalendarView() {
     return { days, pnl: weekPnl, trades: weekTrades }
   })
 
-  const todayStr = today.toISOString().split('T')[0]
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const todayStr = toLocalDateStr(today)
   const selectedDayEvents = selectedDate ? (eventMap.get(selectedDate) ?? []) : []
 
   // Upcoming events (next 7 days from today)
   const upcomingCutoff = new Date(today)
   upcomingCutoff.setDate(upcomingCutoff.getDate() + 7)
   const upcomingEvents = events
-    .filter(e => e.date >= todayStr && e.date <= upcomingCutoff.toISOString().split('T')[0])
+  .filter(e => e.date >= todayStr && e.date <= toLocalDateStr(upcomingCutoff))
     .sort((a, b) => a.date.localeCompare(b.date))
 
   return (

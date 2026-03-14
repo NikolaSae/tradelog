@@ -1,161 +1,224 @@
 //src/components/goals/goals-list.tsx
-
 'use client'
 
-import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Upload, FileText, CheckCircle, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import { createGoal, deleteGoal } from '@/actions/goals'
+import { importCSV } from '@/actions/import'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
-import { EmptyState } from '@/components/shared/empty-state'
-import { Target } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
-interface GoalsListProps {
-  goals: any[]
-  stats: any
+type ImportStatus = 'idle' | 'parsing' | 'success' | 'error'
+
+interface ImportSummary {
+  imported: number
+  duplicates: number
+  skipped: number
+  errors: string[]
 }
 
-export function GoalsList({ goals: initialGoals, stats }: GoalsListProps) {
-  const [goals, setGoals] = useState(initialGoals)
-  const [showForm, setShowForm] = useState(false)
-  const [title, setTitle] = useState('')
-  const [type, setType] = useState('PNL')
-  const [target, setTarget] = useState('')
-  const [saving, setSaving] = useState(false)
+const ALLOWED_TYPES = ['text/csv', 'application/vnd.ms-excel', 'application/csv']
+const MAX_SIZE = 5 * 1024 * 1024 // 5MB
 
-  async function handleCreate() {
-    if (!title || !target) return
-    setSaving(true)
-    await createGoal({
-      title,
-      type,
-      targetValue: Number(target),
-      period: 'MONTHLY',
-    })
-    toast.success('Goal created')
-    setShowForm(false)
-    setTitle('')
-    setTarget('')
-    setSaving(false)
-    // Refresh
-    window.location.reload()
+export function ImportForm() {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const importingRef = useRef(false) // double-submit zaštita
+  const [dragging, setDragging] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [status, setStatus] = useState<ImportStatus>('idle')
+  const [summary, setSummary] = useState<ImportSummary | null>(null)
+
+  function handleFileChange(f: File | null) {
+    if (!f) return
+
+    // Provjera ekstenzije I MIME tipa
+    const hasValidExt = f.name.toLowerCase().endsWith('.csv')
+    const hasValidMime = ALLOWED_TYPES.includes(f.type) || f.type === ''
+    if (!hasValidExt || !hasValidMime) {
+      toast.error('Only CSV files are supported')
+      return
+    }
+    if (f.size > MAX_SIZE) {
+      toast.error('File too large (max 5MB)')
+      return
+    }
+    if (f.size === 0) {
+      toast.error('File is empty')
+      return
+    }
+
+    setFile(f)
+    setStatus('idle')
+    setSummary(null)
   }
 
-  async function handleDelete(id: string) {
-    await deleteGoal(id)
-    setGoals(g => g.filter(x => x.id !== id))
-    toast.success('Goal deleted')
+  async function handleImport() {
+    if (!file || importingRef.current) return
+    importingRef.current = true
+    setStatus('parsing')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const result = await importCSV(formData)
+
+      if (result.error) {
+        setStatus('error')
+        // Generička poruka — ne exposuj server detalje direktno
+        toast.error('Import failed. Please check your file format.')
+        return
+      }
+
+      setStatus('success')
+      setSummary({
+        imported: result.imported ?? 0,
+        duplicates: result.duplicates ?? 0,
+        skipped: result.skipped ?? 0,
+        errors: result.errors ?? [],
+      })
+
+      toast.success(`Successfully imported ${result.imported} trades`)
+    } catch {
+      setStatus('error')
+      toast.error('An unexpected error occurred during import.')
+    } finally {
+      importingRef.current = false
+    }
   }
 
-  // Auto-fill current value based on stats
-  function getCurrentValue(goalType: string) {
-    if (goalType === 'PNL') return stats.totalNetPnl
-    if (goalType === 'WIN_RATE') return stats.winRate
-    if (goalType === 'TRADES') return stats.totalTrades
-    if (goalType === 'PROFIT_FACTOR') return stats.profitFactor
-    return 0
+  function reset() {
+    setFile(null)
+    setStatus('idle')
+    setSummary(null)
+    if (inputRef.current) inputRef.current.value = ''
   }
 
   return (
-    <div className="space-y-4">
-      {/* Add goal button */}
-      <div className="flex justify-end">
-        <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Goal
-        </Button>
+    <div className="space-y-6">
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h3 className="font-semibold mb-3">Supported Formats</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[
+            { name: 'cTrader', desc: 'History export CSV with Deal ID column', icon: '📊' },
+            { name: 'Generic CSV', desc: 'Any CSV with symbol, direction, entry/exit columns', icon: '📄' },
+          ].map(fmt => (
+            <div key={fmt.name} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
+              <span className="text-xl">{fmt.icon}</span>
+              <div>
+                <p className="font-medium text-sm">{fmt.name}</p>
+                <p className="text-xs text-muted-foreground">{fmt.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Create form */}
-      {showForm && (
-        <div className="bg-card border border-border rounded-xl p-6 space-y-4">
-          <h3 className="font-semibold">New Goal</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 space-y-2">
-              <Label>Title</Label>
-              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Hit $2000 this month" />
-            </div>
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <select
-                value={type}
-                onChange={e => setType(e.target.value)}
-                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
-              >
-                <option value="PNL">Net P&L ($)</option>
-                <option value="WIN_RATE">Win Rate (%)</option>
-                <option value="TRADES">Number of Trades</option>
-                <option value="PROFIT_FACTOR">Profit Factor</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Target Value</Label>
-              <Input type="number" value={target} onChange={e => setTarget(e.target.value)} placeholder="1000" />
-            </div>
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => {
+          e.preventDefault()
+          setDragging(false)
+          handleFileChange(e.dataTransfer.files[0] ?? null)
+        }}
+        onClick={() => inputRef.current?.click()}
+        className={cn(
+          'border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all',
+          dragging ? 'border-primary bg-primary/5'
+            : file ? 'border-emerald-500/50 bg-emerald-500/5'
+            : 'border-border hover:border-border/60 hover:bg-muted/30'
+        )}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv"
+          className="hidden"
+          onChange={e => handleFileChange(e.target.files?.[0] ?? null)}
+        />
+
+        {file ? (
+          <div className="flex flex-col items-center gap-2">
+            <FileText className="h-10 w-10 text-emerald-500" />
+            <p className="font-semibold">{file.name}</p>
+            <p className="text-sm text-muted-foreground">
+              {(file.size / 1024).toFixed(1)} KB
+            </p>
           </div>
-          <div className="flex gap-3">
-            <Button onClick={handleCreate} disabled={saving}>
-              {saving ? 'Creating...' : 'Create Goal'}
-            </Button>
-            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+            <Upload className="h-10 w-10" />
+            <p className="font-medium">Drop your CSV file here</p>
+            <p className="text-sm">or click to browse</p>
           </div>
+        )}
+      </div>
+
+      {file && status !== 'success' && (
+        <div className="flex gap-3">
+          <Button
+            onClick={handleImport}
+            disabled={status === 'parsing'}
+            className="flex-1"
+          >
+            {status === 'parsing' ? 'Importing...' : `Import ${file.name}`}
+          </Button>
+          <Button variant="outline" onClick={reset} disabled={status === 'parsing'}>
+            Clear
+          </Button>
         </div>
       )}
 
-      {/* Goals list */}
-      {goals.length === 0 ? (
-        <EmptyState
-          icon={Target}
-          title="No goals yet"
-          description="Set trading targets to stay focused and motivated"
-        />
-      ) : (
-        <div className="grid gap-4">
-          {goals.map((goal) => {
-            const current = getCurrentValue(goal.type)
-            const target = Number(goal.targetValue)
-            const progress = Math.min(Math.round((current / target) * 100), 100)
-            const isComplete = progress >= 100
+      {summary && status === 'success' && (
+        <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-emerald-500" />
+            <h3 className="font-semibold">Import Complete</h3>
+          </div>
 
-            return (
-              <div key={goal.id} className={cn(
-                'bg-card border rounded-xl p-6',
-                isComplete ? 'border-emerald-500/30' : 'border-border'
-              )}>
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h4 className="font-semibold">{goal.title}</h4>
-                    <p className="text-xs text-muted-foreground mt-0.5">{goal.period}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isComplete && <span className="text-emerald-500 text-sm font-medium">✓ Complete</span>}
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(goal.id)}>
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                    </Button>
-                  </div>
-                </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-emerald-500/10 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-emerald-500">{summary.imported}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Imported</p>
+            </div>
+            <div className="bg-muted rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold">{summary.duplicates}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Duplicates</p>
+            </div>
+            <div className="bg-orange-500/10 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-orange-500">{summary.skipped}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Skipped</p>
+            </div>
+          </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Progress</span>
-                    <span className="font-medium">
-                      {goal.type === 'PNL' ? formatCurrency(current) : current}
-                      {' / '}
-                      {goal.type === 'PNL' ? formatCurrency(target) : target}
-                      {goal.type === 'WIN_RATE' || goal.type === 'PROFIT_FACTOR' ? '' : ''}
-                    </span>
-                  </div>
-                  <Progress value={progress} className="h-2" />
-                  <p className="text-xs text-muted-foreground text-right">{progress}%</p>
-                </div>
+          {summary.errors.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-sm text-orange-500">
+                <AlertCircle className="h-4 w-4" />
+                <span>Row errors ({summary.errors.length})</span>
               </div>
-            )
-          })}
+              <div className="bg-muted/50 rounded-lg p-3 space-y-1 max-h-32 overflow-y-auto">
+                {summary.errors.slice(0, 50).map((err, i) => ( // limit broj grešaka
+                  <p key={i} className="text-xs text-muted-foreground font-mono">{err}</p>
+                ))}
+                {summary.errors.length > 50 && (
+                  <p className="text-xs text-muted-foreground">
+                    ...and {summary.errors.length - 50} more
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <Button asChild className="flex-1">
+              <a href="/trades">View Trades</a>
+            </Button>
+            <Button variant="outline" onClick={reset}>
+              Import Another
+            </Button>
+          </div>
         </div>
       )}
     </div>

@@ -1,10 +1,9 @@
 //src/components/settings/subscription-panel.tsx
-
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { CreditCard, ExternalLink, CheckCircle } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { CreditCard, ExternalLink } from 'lucide-react'
 import { createPortalSession } from '@/actions/subscriptions'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
@@ -40,16 +39,34 @@ const planBgs: Record<string, string> = {
   ELITE: 'bg-purple-500/10',
 }
 
+function isSafeInvoiceUrl(url: string | null): boolean {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname === 'invoice.stripe.com' ||
+           parsed.hostname === 'billing.stripe.com' ||
+           parsed.hostname.endsWith('.stripe.com')
+  } catch {
+    return false
+  }
+}
+
 export function SubscriptionPanel({ plan, subscription, billing }: SubscriptionPanelProps) {
   const [loading, setLoading] = useState(false)
+  const portalRef = useRef(false)
   const isPaid = plan !== 'FREE'
 
   async function handlePortal() {
+    if (portalRef.current) return
+    portalRef.current = true
     setLoading(true)
     try {
       await createPortalSession()
     } catch {
+      // Portal redirect failovao
+    } finally {
       setLoading(false)
+      portalRef.current = false
     }
   }
 
@@ -61,8 +78,8 @@ export function SubscriptionPanel({ plan, subscription, billing }: SubscriptionP
           <h3 className="font-semibold">Current Plan</h3>
           <span className={cn(
             'text-sm font-bold px-3 py-1 rounded-full',
-            planBgs[plan],
-            planColors[plan]
+            planBgs[plan] ?? planBgs.FREE,
+            planColors[plan] ?? planColors.FREE
           )}>
             {plan}
           </span>
@@ -137,12 +154,13 @@ export function SubscriptionPanel({ plan, subscription, billing }: SubscriptionP
                   <span className="text-sm font-semibold">
                     {formatCurrency(inv.amount, inv.currency)}
                   </span>
-                  {inv.invoiceUrl && (
-                    <a
-                      href={inv.invoiceUrl}
+                  {isSafeInvoiceUrl(inv.invoiceUrl) && (
+                    
+                    <a  href={inv.invoiceUrl!}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="View invoice"
                     >
                       <ExternalLink className="h-4 w-4" />
                     </a>

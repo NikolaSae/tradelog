@@ -1,8 +1,7 @@
 //src/components/playbook/setup-detail.tsx
-
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Pencil, Trash2 } from 'lucide-react'
@@ -44,11 +43,20 @@ function RuleSection({ title, content }: { title: string; content?: string | nul
 export function SetupDetail({ setup }: SetupDetailProps) {
   const router = useRouter()
   const [editing, setEditing] = useState(false)
+  const deletingRef = useRef(false)
 
   async function handleDelete() {
-    await deleteSetup(setup.id)
-    toast.success('Setup deleted')
-    router.push('/playbook')
+    if (deletingRef.current) return
+    deletingRef.current = true
+
+    try {
+      await deleteSetup(setup.id)
+      toast.success('Setup deleted')
+      router.push('/playbook')
+    } catch {
+      toast.error('Failed to delete setup.')
+      deletingRef.current = false
+    }
   }
 
   if (editing) {
@@ -107,7 +115,6 @@ export function SetupDetail({ setup }: SetupDetailProps) {
       <RuleSection title="Entry Rules" content={setup.entryRules} />
       <RuleSection title="Exit Rules" content={setup.exitRules} />
       <RuleSection title="Risk Rules" content={setup.riskRules} />
-      {/* Fallback za legacy rules polje */}
       {!setup.entryRules && !setup.exitRules && setup.rules && (
         <RuleSection title="Rules" content={setup.rules} />
       )}

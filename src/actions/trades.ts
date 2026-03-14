@@ -1,7 +1,5 @@
 //src/actions/trades.ts
 
-
-
 'use server'
 
 import { headers } from 'next/headers'
@@ -15,15 +13,23 @@ import { tradeFormSchema } from '@/lib/validators/trade'
 import { PLANS } from '@/config/plans'
 import type { TradeFormValues } from '@/lib/validators/trade'
 import type { TimePeriod } from '@/types/trade'
-import { checkAlertsForUser } from '@/actions/alerts'
-// Helper: get current session or throw
+import { checkAlertsForCurrentUser } from '@/actions/alerts'
+
+const VALID_PERIODS = ['day', 'week', 'month', 'quarter', 'year', 'all'] as const
+const VALID_DIRECTIONS = ['LONG', 'SHORT'] as const
+const VALID_STATUSES = ['OPEN', 'CLOSED', 'BREAKEVEN', 'PARTIALLY_CLOSED'] as const
+
+function validatePeriod(period: unknown): TimePeriod {
+  if (!VALID_PERIODS.includes(period as TimePeriod)) throw new Error('Invalid period')
+  return period as TimePeriod
+}
+
 async function getSession() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session) throw new Error('Unauthorized')
   return session
 }
 
-// Helper: get or create default broker account
 async function getDefaultAccount(userId: string) {
   const existing = await db.query.brokerAccounts.findFirst({
     where: and(
@@ -33,7 +39,6 @@ async function getDefaultAccount(userId: string) {
   })
   if (existing) return existing
 
-  // Kreiraj default account ako ne postoji
   const account = {
     id: nanoid(),
     userId,
@@ -49,26 +54,20 @@ async function getDefaultAccount(userId: string) {
   return account
 }
 
-// Helper: calculate P&L
 function getContractSize(symbol: string): number {
   const s = symbol.toUpperCase()
-  // Metali
-  if (s.includes('XAU') || s === 'GOLD') return 100      // Gold — 100 oz
-  if (s.includes('XAG') || s === 'SILVER') return 5000   // Silver — 5000 oz
+  if (s.includes('XAU') || s === 'GOLD') return 100
+  if (s.includes('XAG') || s === 'SILVER') return 5000
   if (s.includes('XPT') || s.includes('XPD')) return 100
-  // Kripto (tipično)
   if (s.includes('BTC')) return 1
   if (s.includes('ETH')) return 1
-  // Indeksi (US100, SPX, GER40...)
   if (s.includes('NAS') || s.includes('US100') || s.includes('NQ')) return 20
   if (s.includes('SPX') || s.includes('US500') || s.includes('SP500')) return 50
   if (s.includes('DOW') || s.includes('US30')) return 5
   if (s.includes('GER') || s.includes('DAX')) return 25
   if (s.includes('UK100') || s.includes('FTSE')) return 10
-  // Energija
   if (s.includes('OIL') || s.includes('WTI') || s.includes('BRENT')) return 1000
   if (s.includes('GAS')) return 10000
-  // Forex default
   return 100000
 }
 
@@ -85,17 +84,14 @@ function calculatePnl(
   const priceDiff = direction === 'LONG'
     ? exitPrice - entryPrice
     : entryPrice - exitPrice
-
   const grossPnl = priceDiff * lotSize * contractSize
   const netPnl = grossPnl - commission - Math.abs(swap)
-
   return {
     grossPnl: grossPnl.toFixed(2),
     netPnl: netPnl.toFixed(2),
   }
 }
 
-// Helper: calculate R-multiple
 function calculateRMultiple(
   direction: 'LONG' | 'SHORT',
   entryPrice: number,
@@ -111,20 +107,15 @@ function calculateRMultiple(
   return (reward / risk).toFixed(2)
 }
 
-// Helper: calculate duration in minutes
 function calculateDuration(openedAt: Date, closedAt: Date): number {
   return Math.floor((closedAt.getTime() - openedAt.getTime()) / 60000)
 }
 
-// ===========================
-// CREATE TRADE
-// ===========================
 export async function createTrade(values: TradeFormValues) {
   const session = await getSession()
   const userId = session.user.id
   const userPlan = ((session.user as any).plan ?? 'FREE') as keyof typeof PLANS
 
-  // Check trade limit for Free plan
   if (userPlan === 'FREE') {
     const count = await db
       .select({ count: sql<number>`count(*)` })
@@ -141,7 +132,7 @@ export async function createTrade(values: TradeFormValues) {
 
   const parsed = tradeFormSchema.safeParse(values)
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? 'Invalid data' }
+    return { error: 'Invalid trade data' } // generička poruka
   }
 
   const data = parsed.data
@@ -150,7 +141,6 @@ export async function createTrade(values: TradeFormValues) {
   const openedAt = new Date(data.openedAt)
   const closedAt = data.closedAt ? new Date(data.closedAt) : null
 
-  // Calculate derived fields
   let grossPnl = null
   let netPnl = null
   let rMultiple = null
@@ -220,20 +210,20 @@ export async function createTrade(values: TradeFormValues) {
   await db.insert(trades).values(trade)
   revalidatePath('/trades')
   revalidatePath('/dashboard')
-  checkAlertsForUser(userId).catch(console.error)
+  await checkAlertsForCurrentUser()
   return { success: true, id: trade.id }
 }
 
-// ===========================
-// UPDATE TRADE
-// ===========================
 export async function updateTrade(id: string, values: TradeFormValues) {
   const session = await getSession()
   const userId = session.user.id
 
+  // Validacija ID formata
+  if (!id || id.length > 50) return { error: 'Invalid trade ID' }
+
   const parsed = tradeFormSchema.safeParse(values)
   if (!parsed.success) {
-    return { error: parsed.error.errors[0]?.message ?? 'Invalid data' }
+    return { error: 'Invalid trade data' }
   }
 
   const data = parsed.data
@@ -299,16 +289,14 @@ export async function updateTrade(id: string, values: TradeFormValues) {
   revalidatePath('/trades')
   revalidatePath(`/trades/${id}`)
   revalidatePath('/dashboard')
-
   return { success: true }
 }
 
-// ===========================
-// DELETE TRADE
-// ===========================
 export async function deleteTrade(id: string) {
   const session = await getSession()
   const userId = session.user.id
+
+  if (!id || id.length > 50) return { error: 'Invalid trade ID' }
 
   await db
     .delete(trades)
@@ -316,13 +304,9 @@ export async function deleteTrade(id: string) {
 
   revalidatePath('/trades')
   revalidatePath('/dashboard')
-
   return { success: true }
 }
 
-// ===========================
-// GET TRADES LIST
-// ===========================
 export async function getTrades({
   period = 'all',
   symbol,
@@ -341,26 +325,39 @@ export async function getTrades({
   const session = await getSession()
   const userId = session.user.id
 
+  // Validacija svih parametara
+  const safePeriod = VALID_PERIODS.includes(period as TimePeriod) ? period : 'all'
+  const safeLimit = Math.min(Math.max(1, Math.floor(limit)), 100)
+  const safePage = Math.max(1, Math.floor(page))
+  const safeSymbol = symbol
+    ? symbol.trim().toUpperCase().slice(0, 20)
+    : undefined
+  const safeDirection = direction && VALID_DIRECTIONS.includes(direction)
+    ? direction
+    : undefined
+  const safeStatus = status && VALID_STATUSES.includes(status as any)
+    ? status
+    : undefined
+
   const conditions = [eq(trades.userId, userId)]
 
-  if (period !== 'all') {
+  if (safePeriod !== 'all') {
     const now = new Date()
     const from = new Date()
-    if (period === 'day') from.setHours(0, 0, 0, 0)
-    else if (period === 'week') from.setDate(now.getDate() - 7)
-    else if (period === 'month') from.setMonth(now.getMonth() - 1)
-    else if (period === 'quarter') from.setMonth(now.getMonth() - 3)
-    else if (period === 'year') from.setFullYear(now.getFullYear() - 1)
+    if (safePeriod === 'day') from.setHours(0, 0, 0, 0)
+    else if (safePeriod === 'week') from.setDate(now.getDate() - 7)
+    else if (safePeriod === 'month') from.setMonth(now.getMonth() - 1)
+    else if (safePeriod === 'quarter') from.setMonth(now.getMonth() - 3)
+    else if (safePeriod === 'year') from.setFullYear(now.getFullYear() - 1)
     conditions.push(gte(trades.openedAt, from))
   }
 
-  if (symbol) conditions.push(eq(trades.symbol, symbol.toUpperCase()))
-  if (direction) conditions.push(eq(trades.direction, direction))
-  if (status) conditions.push(eq(trades.status, status as any))
+  if (safeSymbol) conditions.push(eq(trades.symbol, safeSymbol))
+  if (safeDirection) conditions.push(eq(trades.direction, safeDirection))
+  if (safeStatus) conditions.push(eq(trades.status, safeStatus as any))
 
-  const offset = (page - 1) * limit
+  const offset = (safePage - 1) * safeLimit
 
-  // Ukupan broj za paginaciju
   const totalResult = await db
     .select({ count: sql<number>`count(*)` })
     .from(trades)
@@ -371,18 +368,19 @@ export async function getTrades({
   const result = await db.query.trades.findMany({
     where: and(...conditions),
     orderBy: [desc(trades.openedAt)],
-    limit,
+    limit: safeLimit,
     offset,
   })
 
   return {
     trades: result,
     total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.ceil(total / safeLimit),
   }
 }
+
 export async function getTradeSymbols() {
   const session = await getSession()
   const userId = session.user.id
@@ -396,40 +394,37 @@ export async function getTradeSymbols() {
   return result.map(r => r.symbol)
 }
 
-// ===========================
-// GET SINGLE TRADE
-// ===========================
 export async function getTrade(id: string) {
   const session = await getSession()
   const userId = session.user.id
 
-  const trade = await db.query.trades.findFirst({
-    where: and(eq(trades.id, id), eq(trades.userId, userId)),
-  })
+  if (!id || id.length > 50) return null
 
-  if (!trade) return null
-  return trade
+  return db.query.trades.findFirst({
+    where: and(eq(trades.id, id), eq(trades.userId, userId)),
+  }) ?? null
 }
 
-// ===========================
-// GET TRADE STATS (za dashboard)
-// ===========================
 export async function getTradeStats(period: TimePeriod = 'month') {
   const session = await getSession()
   const userId = session.user.id
+
+  // Validacija period-a
+  const safePeriod = VALID_PERIODS.includes(period as TimePeriod) ? period : 'month'
+
   const now = new Date()
   const from = new Date()
-  if (period === 'day') from.setHours(0, 0, 0, 0)
-  else if (period === 'week') from.setDate(now.getDate() - 7)
-  else if (period === 'month') from.setMonth(now.getMonth() - 1)
-  else if (period === 'quarter') from.setMonth(now.getMonth() - 3)
-  else if (period === 'year') from.setFullYear(now.getFullYear() - 1)
+  if (safePeriod === 'day') from.setHours(0, 0, 0, 0)
+  else if (safePeriod === 'week') from.setDate(now.getDate() - 7)
+  else if (safePeriod === 'month') from.setMonth(now.getMonth() - 1)
+  else if (safePeriod === 'quarter') from.setMonth(now.getMonth() - 3)
+  else if (safePeriod === 'year') from.setFullYear(now.getFullYear() - 1)
 
   const conditions = [
     eq(trades.userId, userId),
     eq(trades.status, 'CLOSED'),
   ]
-  if (period !== 'all') {
+  if (safePeriod !== 'all') {
     conditions.push(gte(trades.openedAt, from))
   }
 
@@ -437,36 +432,21 @@ export async function getTradeStats(period: TimePeriod = 'month') {
     where: and(...conditions),
   })
 
-  // Empty state — sve nule, nema referenci na nedefinirane varijable
   if (allTrades.length === 0) {
     return {
-      totalTrades: 0,
-      winningTrades: 0,
-      losingTrades: 0,
-      winRate: 0,
-      totalNetPnl: 0,
-      totalGrossPnl: 0,
-      totalCommission: 0,
-      avgNetPnl: 0,
-      avgWin: 0,
-      avgLoss: 0,
-      profitFactor: 0,
-      expectancy: 0,
-      largestWin: 0,
-      largestLoss: 0,
-      avgRMultiple: 0,
-      tradingDays: 0,
-      grossWinTotal: 0,
-      grossLossTotal: 0,
+      totalTrades: 0, winningTrades: 0, losingTrades: 0,
+      winRate: 0, totalNetPnl: 0, totalGrossPnl: 0,
+      totalCommission: 0, avgNetPnl: 0, avgWin: 0, avgLoss: 0,
+      profitFactor: 0, expectancy: 0, largestWin: 0, largestLoss: 0,
+      avgRMultiple: 0, tradingDays: 0, grossWinTotal: 0, grossLossTotal: 0,
     }
   }
 
-  // Kalkulacije — dolaze NAKON early return
   const winners = allTrades.filter(t => Number(t.netPnl ?? 0) > 0)
   const losers  = allTrades.filter(t => Number(t.netPnl ?? 0) < 0)
 
-  const totalNetPnl    = allTrades.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)
-  const totalGrossPnl  = allTrades.reduce((sum, t) => sum + Number(t.grossPnl ?? 0), 0)
+  const totalNetPnl     = allTrades.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)
+  const totalGrossPnl   = allTrades.reduce((sum, t) => sum + Number(t.grossPnl ?? 0), 0)
   const totalCommission = allTrades.reduce((sum, t) => sum + Number(t.commission ?? 0), 0)
 
   const grossWins   = winners.reduce((sum, t) => sum + Number(t.netPnl ?? 0), 0)

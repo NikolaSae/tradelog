@@ -3,6 +3,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useRef } from 'react'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatCurrency, getPnlColor } from '@/lib/utils'
@@ -12,15 +13,9 @@ import { EmptyState } from '@/components/shared/empty-state'
 import { TrendingUp } from 'lucide-react'
 import { deleteTrade } from '@/actions/trades'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import type { Trade } from '@/types/trade'
 
@@ -30,6 +25,7 @@ interface TradeTableProps {
 
 export function TradeTable({ trades }: TradeTableProps) {
   const router = useRouter()
+  const deletingRef = useRef<string | null>(null)
 
   if (trades.length === 0) {
     return (
@@ -43,9 +39,22 @@ export function TradeTable({ trades }: TradeTableProps) {
   }
 
   async function handleDelete(id: string, symbol: string) {
-    await deleteTrade(id)
-    toast.success(`${symbol} trade deleted`)
-    router.refresh()
+    if (deletingRef.current) return
+    deletingRef.current = id
+
+    try {
+      const result = await deleteTrade(id)
+      if (result.success) {
+        toast.success(`${symbol} trade deleted`)
+        router.refresh()
+      } else {
+        toast.error('Failed to delete trade.')
+      }
+    } catch {
+      toast.error('Failed to delete trade.')
+    } finally {
+      deletingRef.current = null
+    }
   }
 
   return (
@@ -79,14 +88,10 @@ export function TradeTable({ trades }: TradeTableProps) {
                 >
                   <td className="px-4 py-3 text-muted-foreground">
                     {new Date(trade.openedAt).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: '2-digit',
+                      day: '2-digit', month: 'short', year: '2-digit',
                     })}
                   </td>
-
                   <td className="px-4 py-3 font-medium">{trade.symbol}</td>
-
                   <td className="px-4 py-3">
                     <Badge
                       variant="outline"
@@ -97,31 +102,23 @@ export function TradeTable({ trades }: TradeTableProps) {
                       {trade.direction === 'LONG' ? '▲ Long' : '▼ Short'}
                     </Badge>
                   </td>
-
                   <td className="px-4 py-3 text-right font-mono text-xs">
                     {Number(trade.entryPrice).toFixed(5)}
                   </td>
-
                   <td className="px-4 py-3 text-right font-mono text-xs">
                     {trade.exitPrice ? Number(trade.exitPrice).toFixed(5) : '—'}
                   </td>
-
                   <td className="px-4 py-3 text-right">
                     {Number(trade.lotSize).toFixed(2)}
                   </td>
-
                   <td className={`px-4 py-3 text-right font-semibold ${getPnlColor(pnl)}`}>
-                    {trade.netPnl
-                      ? `${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)}`
-                      : '—'}
+                    {trade.netPnl ? `${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)}` : '—'}
                   </td>
-
                   <td className={`px-4 py-3 text-right font-mono text-xs ${getPnlColor(pnl)}`}>
                     {trade.rMultiple
                       ? `${Number(trade.rMultiple) >= 0 ? '+' : ''}${Number(trade.rMultiple).toFixed(2)}R`
                       : '—'}
                   </td>
-
                   <td className="px-4 py-3">
                     <Badge
                       variant="outline"
@@ -138,7 +135,6 @@ export function TradeTable({ trades }: TradeTableProps) {
                       {trade.status}
                     </Badge>
                   </td>
-
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <Button variant="ghost" size="sm" asChild>
@@ -161,7 +157,8 @@ export function TradeTable({ trades }: TradeTableProps) {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Delete trade?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This will permanently delete the <strong>{trade.symbol}</strong> {trade.direction.toLowerCase()} trade from{' '}
+                              This will permanently delete the <strong>{trade.symbol}</strong>{' '}
+                              {trade.direction.toLowerCase()} trade from{' '}
                               {new Date(trade.openedAt).toLocaleDateString('en-GB', {
                                 day: '2-digit', month: 'short', year: 'numeric',
                               })}. This action cannot be undone.
