@@ -107,7 +107,11 @@ function calculateRMultiple(
   return (reward / risk).toFixed(2)
 }
 
-function calculateDuration(openedAt: Date, closedAt: Date): number {
+function calculateDurationSeconds(openedAt: Date, closedAt: Date): number {
+  return Math.floor((closedAt.getTime() - openedAt.getTime()) / 1000)
+}
+
+function calculateDurationMinutes(openedAt: Date, closedAt: Date): number {
   return Math.floor((closedAt.getTime() - openedAt.getTime()) / 60000)
 }
 
@@ -145,6 +149,7 @@ export async function createTrade(values: TradeFormValues) {
   let netPnl = null
   let rMultiple = null
   let durationMinutes = null
+  let durationSeconds = null
 
   if (data.exitPrice && data.status !== 'OPEN') {
     const pnl = calculatePnl(
@@ -167,8 +172,9 @@ export async function createTrade(values: TradeFormValues) {
   }
 
   if (closedAt) {
-    durationMinutes = calculateDuration(openedAt, closedAt)
-  }
+  durationSeconds = calculateDurationSeconds(openedAt, closedAt)
+  durationMinutes = Math.floor(durationSeconds / 60)
+}
 
   const trade = {
     id: nanoid(),
@@ -192,6 +198,7 @@ export async function createTrade(values: TradeFormValues) {
     openedAt,
     closedAt,
     durationMinutes,
+    durationSeconds,
     mae: null,
     mfe: null,
     plannedEntry: null,
@@ -234,6 +241,7 @@ export async function updateTrade(id: string, values: TradeFormValues) {
   let netPnl = null
   let rMultiple = null
   let durationMinutes = null
+  let durationSeconds = null
 
   if (data.exitPrice && data.status !== 'OPEN') {
     const pnl = calculatePnl(
@@ -256,8 +264,9 @@ export async function updateTrade(id: string, values: TradeFormValues) {
   }
 
   if (closedAt) {
-    durationMinutes = calculateDuration(openedAt, closedAt)
-  }
+    durationSeconds = calculateDurationSeconds(openedAt, closedAt)
+    durationMinutes = Math.floor(durationSeconds / 60)
+}
 
   await db
     .update(trades)
@@ -279,6 +288,7 @@ export async function updateTrade(id: string, values: TradeFormValues) {
       openedAt,
       closedAt,
       durationMinutes,
+      durationSeconds,
       emotionTag: data.emotionTag ?? null,
       notes: data.notes ?? null,
       setupId: data.setupId ?? null,

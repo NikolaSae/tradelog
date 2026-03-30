@@ -57,11 +57,18 @@ const SEVERITY_DOT: Record<CalendarEvent['severity'], string> = {
   HIGH: 'bg-red-500',
 }
 
-function formatDuration(minutes: number | null) {
-  if (!minutes) return '—'
-  if (minutes < 60) return `${minutes}m`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
+function formatDuration(minutes: number | null, seconds?: number | null) {
+  // Preferuj sekunde za preciznost
+  const totalSeconds = seconds ?? (minutes !== null && minutes !== undefined ? minutes * 60 : null)
+  
+  if (totalSeconds === null || totalSeconds === undefined) return '—'
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
   return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
@@ -531,7 +538,9 @@ const todayStr = toLocalDateStr(today)
                         : 'text-muted-foreground')}>
                         {trade.rMultiple ? `${Number(trade.rMultiple) >= 0 ? '+' : ''}${Number(trade.rMultiple).toFixed(2)}R` : '—'}
                       </span>
-                      <span className="text-muted-foreground text-xs">{formatDuration(trade.durationMinutes)}</span>
+                      <span className="text-muted-foreground text-xs">
+  {formatDuration(trade.durationMinutes, (trade as any).durationSeconds)}
+</span>
                       <Link href={`/trades/${trade.id}`}>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
                           <ExternalLink className="h-3.5 w-3.5" />

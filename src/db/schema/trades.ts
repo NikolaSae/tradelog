@@ -53,6 +53,7 @@ export const trades = pgTable('trades', {
   openedAt: timestamp('opened_at').notNull(),
   closedAt: timestamp('closed_at'),
   durationMinutes: integer('duration_minutes'),
+  durationSeconds: integer('duration_seconds'),
 
   mae: numeric('mae', { precision: 18, scale: 2 }),
   mfe: numeric('mfe', { precision: 18, scale: 2 }),

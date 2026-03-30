@@ -1,6 +1,6 @@
 //src/components/shared/upgrade-gate.tsx
 
-
+// src/components/shared/upgrade-gate.tsx
 'use client'
 
 import { Lock } from 'lucide-react'
@@ -16,12 +16,18 @@ interface UpgradeGateProps {
   blur?: boolean
 }
 
-export function UpgradeGate({ feature, children, fallback, blur = true }: UpgradeGateProps) {
+export function UpgradeGate({
+  feature,
+  children,
+  fallback,
+  blur = true,
+}: UpgradeGateProps) {
   const { hasAccess, isPending } = useFeatureGate(feature)
-  
-  console.log('[UpgradeGate]', feature, { hasAccess, isPending })
-  
-  if (isPending) return null
+
+  // Dok se session učitava — prikaži children bez blur-a
+  // Ne vraćaj null jer to uzrokuje layout shift i race condition
+  if (isPending) return <>{children}</>
+
   if (hasAccess) return <>{children}</>
 
   if (fallback) return <>{fallback}</>

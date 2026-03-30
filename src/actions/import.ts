@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
 import { db } from '@/db'
 import { trades, brokerAccounts } from '@/db/schema'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, sql, inArray } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { PLANS } from '@/config/plans'
 import { columnMappingSchema } from '@/lib/validators/import'
@@ -23,8 +23,6 @@ async function getSession() {
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024
 
-
-// Sigurno parsiranje JSON-a — spriječava prototype pollution
 function safeJSONParse(str: string): unknown {
   try {
     const parsed = JSON.parse(str)
@@ -114,19 +112,27 @@ export async function parseCSVHeaders(formData: FormData) {
 }
 
 export async function importCSVWithMapping(formData: FormData) {
+  console.log('[import] START')
   const session = await getSession()
+  console.log('[import] session ok, userId:', session.user.id)
   const userId = session.user.id
   const userPlan = ((session.user as any).plan ?? 'FREE') as keyof typeof PLANS
 
   // Rate limiting
   try {
     await importLimiter.check(session.user.id)
+    console.log('[import] rate limit ok')
   } catch {
+    console.log('[import] rate limit FAILED:', e)
     return { error: 'Too many import requests. Please wait a minute.' }
   }
 
   const file = formData.get('file')
   const mappingRaw = formData.get('mapping')
+  const isCTraderFlag = formData.get('isCTrader') === 'true'
+    console.log('[import] file:', file instanceof File ? `${file.name} (${file.size}b)` : 'NULL')
+  console.log('[import] mappingRaw length:', typeof mappingRaw === 'string' ? mappingRaw.length : 'NULL')
+  console.log('[import] isCTraderFlag:', isCTraderFlag)
 
   if (!(file instanceof File)) return { error: 'No file provided' }
   if (!mappingRaw || typeof mappingRaw !== 'string') return { error: 'No column mapping provided' }
@@ -135,36 +141,44 @@ export async function importCSVWithMapping(formData: FormData) {
   if (!file.name.toLowerCase().endsWith('.csv')) return { error: 'Only CSV files are supported' }
 
   const mappingObj = safeJSONParse(mappingRaw)
+console.log('[import] mappingObj:', mappingObj)
   if (!mappingObj) return { error: 'Invalid mapping format' }
 
   const text = await file.text()
+console.log('[import] text length:', text.length)
   if (!text.trim()) return { error: 'File is empty' }
 
+  // Parsuj CSV
   const csvResult = Papa.parse(text, {
     header: true,
     skipEmptyLines: true,
     transformHeader: h => String(h).trim().slice(0, 100),
   })
-
+console.log('[import] csvResult rows:', csvResult.data.length)
+  console.log('[import] csvResult errors:', csvResult.errors.length)
+  console.log('[import] csvHeaders:', csvResult.meta.fields?.slice(0, 5))
   if (csvResult.errors.length > 0 && csvResult.data.length === 0) {
     return { error: 'Failed to parse CSV file' }
   }
 
   const rows = csvResult.data as Record<string, string>[]
   const csvHeaders = csvResult.meta.fields ?? []
-
-  let parsedTrades
+console.log('[import] isCTraderFormat check:', isCTraderFormat(csvHeaders))
+  let parsedTrades: ReturnType<typeof parseCTrader>['trades'] = []
   let parseErrors: string[] = []
   let skipped = 0
 
-  if (isCTraderFormat(csvHeaders)) {
-    // cTrader — ne treba mapping validacija
+  // cTrader — auto-detect ili explicit flag
+  if (isCTraderFlag || isCTraderFormat(csvHeaders)) {
+    console.log('[import] using cTrader parser')
     const result = parseCTrader(rows, file.name)
     parsedTrades = result.trades
     parseErrors = result.errors
     skipped = result.skipped
+    console.log('[import] cTrader parsed:', parsedTrades.length, 'trades,', parseErrors.length, 'errors,', skipped, 'skipped')
+    if (parseErrors.length > 0) console.log('[import] first 3 errors:', parseErrors.slice(0, 3))
   } else {
-    // Custom CSV — validiraj mapping tek ovdje
+    // Custom CSV — validiraj mapping
     const mappingParsed = columnMappingSchema.safeParse(mappingObj)
     if (!mappingParsed.success) {
       return { error: mappingParsed.error.issues[0]?.message ?? 'Invalid column mapping' }
@@ -201,6 +215,7 @@ export async function importCSVWithMapping(formData: FormData) {
 
   const account = await getOrCreateDefaultAccount(userId)
 
+  // Dohvati postojeće externalId-ove jednim upitom
   const externalIds = parsedTrades
     .map(t => t.externalId)
     .filter((id): id is string => !!id)
@@ -210,7 +225,7 @@ export async function importCSVWithMapping(formData: FormData) {
     const existing = await db.query.trades.findMany({
       where: and(
         eq(trades.userId, userId),
-        sql`${trades.externalId} = ANY(${sql.raw(`ARRAY[${externalIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',')}]`)})`,
+        inArray(trades.externalId, externalIds)
       ),
       columns: { externalId: true },
     })
@@ -222,7 +237,7 @@ export async function importCSVWithMapping(formData: FormData) {
   let imported = 0
   let duplicates = 0
   const BATCH_SIZE = 100
-  const toInsert = []
+  const toInsert: object[] = []
 
   for (const t of parsedTrades) {
     if (t.externalId && existingExternalIds.has(t.externalId)) {
@@ -250,6 +265,11 @@ export async function importCSVWithMapping(formData: FormData) {
       riskAmount: null,
       openedAt: t.openedAt,
       closedAt: t.closedAt ?? null,
+      durationSeconds: t.durationSeconds !== undefined
+        ? t.durationSeconds
+        : t.closedAt
+          ? Math.floor((t.closedAt.getTime() - t.openedAt.getTime()) / 1000)
+          : null,
       durationMinutes: t.closedAt
         ? Math.floor((t.closedAt.getTime() - t.openedAt.getTime()) / 60000)
         : null,
@@ -264,15 +284,16 @@ export async function importCSVWithMapping(formData: FormData) {
       aiScore: null,
       notes: t.notes ?? null,
       externalId: t.externalId ?? null,
-      importSource: 'custom_csv',
+      importSource: isCTraderFlag || isCTraderFormat(csvHeaders) ? 'ctrader' : 'custom_csv',
       createdAt: new Date(),
       updatedAt: new Date(),
     })
   }
 
+  // Batch insert
   for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
     const batch = toInsert.slice(i, i + BATCH_SIZE)
-    await db.insert(trades).values(batch)
+    await db.insert(trades).values(batch as any)
     imported += batch.length
   }
 

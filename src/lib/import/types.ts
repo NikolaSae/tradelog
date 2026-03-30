@@ -2,18 +2,30 @@
 export interface ParsedTrade {
   symbol: string
   direction: 'LONG' | 'SHORT'
+  status: 'OPEN' | 'CLOSED'
   entryPrice: number
-  exitPrice: number
+  exitPrice?: number
+  stopLoss?: number
+  takeProfit?: number
   lotSize: number
   commission: number
   swap: number
-  grossPnl: number
-  netPnl: number
+  grossPnl?: number
+  netPnl?: number
   openedAt: Date
-  closedAt: Date
-  externalId?: string
+  closedAt?: Date
+  externalId?: string | null
   notes?: string
-  status: 'CLOSED'
+  emotionTag?: string
+  session?: string
+  durationSeconds?: number
+}
+
+export interface ParseResult {
+  trades: ParsedTrade[]
+  errors: string[]
+  skipped: number
+  format?: string
 }
 
 export interface ImportResult {

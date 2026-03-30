@@ -38,12 +38,31 @@ export function formatPnl(value: number, currency = 'USD') {
   return value >= 0 ? `+${formatted}` : `-${formatted}`
 }
 
-export function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (mins === 0) return `${hours}h`
-  return `${hours}h ${mins}m`
+// Zamijeniti postojeću formatDuration funkciju sa ovom:
+export function formatDuration(minutes: number | null, seconds?: number | null): string {
+  // Preferuj sekunde za preciznost ako su dostupne
+  const totalSeconds = seconds !== null && seconds !== undefined
+    ? seconds
+    : minutes !== null && minutes !== undefined
+      ? minutes * 60
+      : null
+
+  if (totalSeconds === null || totalSeconds === undefined) return '—'
+  if (totalSeconds === 0) return '0s'
+  if (totalSeconds < 60) return `${totalSeconds}s`
+
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const remainingSeconds = totalSeconds % 60
+
+  if (totalMinutes < 60) {
+    return remainingSeconds > 0
+      ? `${totalMinutes}m ${remainingSeconds}s`
+      : `${totalMinutes}m`
+  }
+
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
 export function getPnlColor(value: number): string {

@@ -66,27 +66,27 @@ export function ImportForm() {
   }
 
   async function handleParse() {
-    if (!file || parsing) return
-    setParsing(true)
+  if (!file || parsing) return
+  setParsing(true)
 
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const result = await parseCSVHeaders(formData)
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const result = await parseCSVHeaders(formData)
 
-      if (result.error) {
-        toast.error(result.error)
-        return
-      }
+    if (result.error) {
+      toast.error(result.error)
+      return
+    }
 
-      setParsedHeaders(result as ParsedHeaders)
+    setParsedHeaders(result as ParsedHeaders)
 
-      // Auto-mapping za cTrader
-      if (result.isCTrader) {
-        toast.success('cTrader format detected — importing automatically')
-        await handleImport({})
-        return
-      }
+    if (result.isCTrader) {
+      toast.success('cTrader format detected — importing automatically')
+      // FIX: proslijedi isCTrader direktno, ne čekaj state
+      await handleImportDirect(result.isCTrader)
+      return
+    }
 
       // Auto-mapping za poznate nazive kolona
       const autoMapping: Record<string, string> = {}
@@ -114,31 +114,70 @@ export function ImportForm() {
       setParsing(false)
     }
   }
+async function handleImportDirect(isCTrader: boolean) {
+  if (!file || importingRef.current) return
 
-  async function handleImport(customMapping?: Record<string, string>) {
-    if (!file || importingRef.current) return
+  importingRef.current = true
+  setImporting(true)
 
-    const finalMapping = customMapping ?? mapping
-
-    // Validacija — provjeri required kolone
-    if (Object.keys(finalMapping).length > 0) {
-      const mappedTargets = Object.values(finalMapping).filter(v => v !== '__skip__')
-      const missingRequired = REQUIRED_COLUMNS.filter(req => !mappedTargets.includes(req))
-      if (missingRequired.length > 0) {
-        toast.error(`Please map required columns: ${missingRequired.map(c => COLUMN_LABELS[c]).join(', ')}`)
-        return
-      }
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mapping', JSON.stringify({}))
+    if (isCTrader) {
+      formData.append('isCTrader', 'true')  // ← sada se ispravno šalje
     }
 
-    importingRef.current = true
-    setImporting(true)
+    const res = await importCSVWithMapping(formData)
 
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('mapping', JSON.stringify(finalMapping))
+    if (res.error) {
+      toast.error(res.error)
+      return
+    }
 
-      const res = await importCSVWithMapping(formData)
+    setResult({
+      imported: res.imported ?? 0,
+      duplicates: res.duplicates ?? 0,
+      skipped: res.skipped ?? 0,
+      errors: res.errors ?? [],
+    })
+    setStep('result')
+    toast.success(`Successfully imported ${res.imported} trades`)
+  } catch {
+    toast.error('Import failed. Please try again.')
+  } finally {
+    setImporting(false)
+    importingRef.current = false
+  }
+}
+  async function handleImport(customMapping?: Record<string, string>) {
+  if (!file || importingRef.current) return
+
+  const finalMapping = customMapping ?? mapping
+
+  // Validacija — samo za non-cTrader
+  if (!parsedHeaders?.isCTrader && Object.keys(finalMapping).length > 0) {
+    const mappedTargets = Object.values(finalMapping).filter(v => v !== '__skip__')
+    const missingRequired = REQUIRED_COLUMNS.filter(req => !mappedTargets.includes(req))
+    if (missingRequired.length > 0) {
+      toast.error(`Please map required columns: ${missingRequired.map(c => COLUMN_LABELS[c]).join(', ')}`)
+      return
+    }
+  }
+
+  importingRef.current = true
+  setImporting(true)
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mapping', JSON.stringify(finalMapping))
+    // Proslijedi isCTrader flag serveru
+    if (parsedHeaders?.isCTrader) {
+      formData.append('isCTrader', 'true')
+    }
+
+    const res = await importCSVWithMapping(formData)
 
       if (res.error) {
         toast.error(res.error)
